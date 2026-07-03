@@ -52,6 +52,27 @@ few minutes. Drop the `.zip` into the `exports/` folder here.
 - **A short reading** of your network: how many people over how many years, where
   your center of gravity sits, and who's worth reconnecting with.
 
+## Will this work for my network?
+
+Yes, with one caveat worth knowing up front.
+
+- **Any size.** Tested from a handful of connections up to 12,000. Large networks
+  (past ~15,000) still render but the animation gets heavier on older machines.
+- **Any language.** LinkedIn localizes the export — French headers, German dates,
+  and so on. The importer reads by column position rather than English text, so
+  your names, companies, titles, and dates come through whatever language your
+  export is in. The map, search, and the company and era views all work.
+- **Any industry.** Roles are sorted into buckets that cover tech, healthcare,
+  law, education, finance, trades, government, nonprofit, science, hospitality,
+  the arts, and more. Anything that doesn't map cleanly goes to "Other."
+
+**The caveat:** the role and seniority guess reads *English* job titles. If your
+export is in another language, most people will land in "Other" and "Individual
+contributor" for the role and seniority views, because the tool doesn't yet
+recognize titles like "Directeur des ventes." Everything else still works. If you
+want your language supported, it's a small change to the keyword lists in
+`scripts/linkedin_import.py` — ask your agent to add it.
+
 ## A note on what's inferred
 
 Your export gives a name, company, title, and connection date. Function

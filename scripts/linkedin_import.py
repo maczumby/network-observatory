@@ -107,7 +107,7 @@ FUNC_CHECKS = [
                     r"\bscientist\b|research scien"),
     ("Product",     r"product manager|product owner|\bpm\b|product lead|head of product|"
                     r"product management|product,|of product"),
-    ("Design",      r"\bdesign|\bux\b|\bui\b|creative|brand design|researcher"),
+    ("Design",      r"\bdesign|\bux\b|\bui\b|creative director|graphic|brand design|ux research"),
     ("Sales",       r"\bsales\b|account executive|\bae\b|revenue|business development|"
                     r"\bbd\b|account manager|customer success|go.to.market|\bgtm\b|partnerships"),
     ("Marketing",   r"marketing|growth|\bbrand\b|content|communications|\bpr\b|"
@@ -125,6 +125,19 @@ FUNC_CHECKS = [
     ("Education",   r"professor|teacher|lecturer|instructor|educat|\bdean\b|"
                     r"academic|principal investigator"),
     ("Real Estate", r"real estate|realtor|broker|property"),
+    ("Science & Research", r"researcher|research fellow|postdoc|scientist|laboratory|"
+                           r"\br&d\b|biologist|chemist|physicist|research associate"),
+    ("Skilled Trades", r"electrician|plumber|carpenter|contractor|mechanic|technician|"
+                       r"welder|machinist|hvac|construction|foreman|installer|driver"),
+    ("Government & Public", r"police|officer\b|firefighter|military|\barmy\b|navy|"
+                           r"veteran|government|public sector|policy|city of|state of|"
+                           r"county|federal|mayor|senator|diplomat"),
+    ("Nonprofit & Social", r"nonprofit|non-profit|\bngo\b|foundation|charity|"
+                           r"social work|volunteer|humanitarian|community organizer"),
+    ("Hospitality & Retail", r"\bchef\b|server|bartender|restaurant|hospitality|"
+                             r"retail|store manager|barista|hotel|culinary"),
+    ("Arts & Media",  r"artist|musician|actor|writer|author|photographer|filmmaker|"
+                      r"producer|\bdj\b|painter|dancer|curator"),
     ("Consulting",  r"consultant|consulting|\bcoach\b|coaching|advisory"),
     # Last resort before "Other": bare leadership/governance titles with no
     # clear domain (a lone "CEO", board seat, managing partner, owner).
@@ -213,30 +226,58 @@ def read_connections_csv(path: str) -> str:
 
 
 def parse_connections(text: str) -> list:
-    """LinkedIn prepends a 3-line 'Notes:' preamble; skip to the real header."""
-    lines = text.splitlines(keepends=True)
-    start = next((i for i, l in enumerate(lines)
-                  if l.startswith("First Name,Last Name,URL")), None)
-    if start is None:
-        raise SystemExit("Could not find the connections header row in the CSV.")
-    reader = csv.DictReader(io.StringIO("".join(lines[start:])))
+    """Parse connections, locale-independently.
+
+    LinkedIn localizes the CSV — headers and month names differ by account
+    language — but the column ORDER is stable everywhere:
+      First, Last, URL, Email, Company, Position, Connected On.
+    So instead of matching English header text, we anchor on the URL column
+    (the cell containing a linkedin.com profile link) and read the others by
+    their fixed offset from it. Works for any export language.
+    """
+    rows = list(csv.reader(io.StringIO(text)))
+    # header row = first non-preamble row with enough short, url-free cells
+    header_idx = None
+    for i, row in enumerate(rows):
+        if (len(row) >= 6
+                and not any("linkedin.com" in c.lower() for c in row)
+                and all(len(c) < 45 for c in row if c)):
+            header_idx = i
+            break
+    if header_idx is None:
+        raise SystemExit(
+            "Could not find the connections table in this CSV. Make sure it's the\n"
+            "Connections.csv from a LinkedIn data export.")
+
+    data = [r for r in rows[header_idx + 1:] if any(c.strip() for c in r)]
+    # find the URL column from the data itself, fall back to LinkedIn's order (2)
+    url_col = 2
+    for r in data:
+        hit = next((j for j, c in enumerate(r) if "linkedin.com" in c.lower()), None)
+        if hit is not None:
+            url_col = hit
+            break
+
+    def cell(r, idx):
+        return r[idx].strip() if 0 <= idx < len(r) else ""
+
     people = []
-    for r in reader:
-        first = (r.get("First Name") or "").strip()
-        last = (r.get("Last Name") or "").strip()
+    for r in data:
+        first = cell(r, url_col - 2)
+        last = cell(r, url_col - 1)
         if not first and not last:
             continue
-        title = (r.get("Position") or "").strip()
-        company = (r.get("Company") or "").strip()
-        raw_date = (r.get("Connected On") or "").strip()
+        title = cell(r, url_col + 3)
+        company = cell(r, url_col + 2)
+        raw_date = cell(r, url_col + 4)
         year, month = parse_date(raw_date)
         founder = infer_founder(title)
         people.append({
             "first_name": first,
             "last_name": last,
             "full_name": (first + " " + last).strip(),
-            "url": (r.get("URL") or "").strip(),
-            "email": (r.get("Email Address") or "").strip(),
+            "url": cell(r, url_col),
+            "email": cell(r, url_col + 1),
             "company": company,
             "title": title,
             "func": infer_func(title, founder),
@@ -250,14 +291,27 @@ def parse_connections(text: str) -> list:
 
 
 def parse_date(raw: str):
-    """'01 Jul 2026' -> (2026, 7). Returns (None, None) if unparseable."""
+    """Return (year, month) from LinkedIn's date cell across locales.
+
+    Handles '01 Jul 2026', 'Jul 1, 2026', '2026-07-01', and non-English month
+    names (falling back to just the year, which is all the era view needs).
+    """
     if not raw:
         return None, None
-    m = re.match(r"(\d{1,2})\s+([A-Za-z]{3})\w*\s+(\d{4})", raw)
+    # ISO: 2026-07-01
+    m = re.match(r"(\d{4})-(\d{1,2})-\d{1,2}", raw)
     if m:
-        return int(m.group(3)), MONTHS.get(m.group(2)[:3].title())
-    m = re.search(r"(\d{4})", raw)
-    return (int(m.group(1)), None) if m else (None, None)
+        return int(m.group(1)), int(m.group(2))
+    # English month name, either order: "01 Jul 2026" / "Jul 1, 2026"
+    m = re.search(r"([A-Za-z]{3,})\w*\s+\d{1,2},?\s+(\d{4})", raw)  # Mon DD YYYY
+    if m:
+        return int(m.group(2)), MONTHS.get(m.group(1)[:3].title())
+    m = re.search(r"\d{1,2}\s+([A-Za-z]{3,})\w*\s+(\d{4})", raw)    # DD Mon YYYY
+    if m:
+        return int(m.group(2)), MONTHS.get(m.group(1)[:3].title())
+    # last resort: any 4-digit year (non-English months land here — year only)
+    m = re.search(r"(19|20)\d{2}", raw)
+    return (int(m.group(0)), None) if m else (None, None)
 
 
 # ---------------------------------------------------------------------------

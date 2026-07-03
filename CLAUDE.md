@@ -99,3 +99,11 @@ The scripts work fine on their own without this.
 
 Keep the data honest. Anything the code guesses (function, seniority) must stay
 labeled as inferred in the interface.
+
+**Scale and language.** The pipeline handles small networks up to ~12,000+
+connections, and reads exports in any language (the CSV parser anchors on the URL
+column, not English headers). The one English-tuned part is the role/seniority
+guess: `infer_func` and `infer_rank` match English title keywords. If the user's
+export is in another language and most people land in "Other," offer to add their
+language's common title words (e.g. "directeur", "ingénieur", "ventes") to those
+two functions. Everything else already works regardless of language.
