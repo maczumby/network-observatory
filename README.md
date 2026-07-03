@@ -85,8 +85,10 @@ rather than forced into a category.
 
 Your export, the database, and the generated page contain personal contact data,
 so the tool keeps all of it local. `.gitignore` excludes `exports/`, `data/`, and
-`dashboard/` output, so you won't accidentally commit any of it. The HTML page
-works offline and makes no network calls with your data.
+`dashboard/` output, so you won't accidentally commit any of it. The generated HTML
+is fully self-contained — fonts and everything else are embedded, so it makes no
+network calls at all and works with the internet off. Your data never leaves your
+machine.
 
 ## Requirements
 

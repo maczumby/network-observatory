@@ -215,7 +215,7 @@ def read_connections_csv(path: str) -> str:
         return open(fp, encoding="utf-8", errors="replace").read()
     if zipfile.is_zipfile(path):
         with zipfile.ZipFile(path) as z:
-            name = next((n for n in z.namelist()
+            name = next((n for n in sorted(z.namelist())
                          if os.path.basename(n) == "Connections.csv"), None)
             if not name:
                 raise SystemExit(f"No Connections.csv inside {path}")
@@ -235,6 +235,7 @@ def parse_connections(text: str) -> list:
     (the cell containing a linkedin.com profile link) and read the others by
     their fixed offset from it. Works for any export language.
     """
+    text = text.lstrip("﻿")  # drop a UTF-8 BOM (Windows/Excel-touched files)
     rows = list(csv.reader(io.StringIO(text)))
     # header row = first non-preamble row with enough short, url-free cells
     header_idx = None
@@ -443,6 +444,10 @@ def main():
     src = args.export or find_default_export()
     print(f"Reading export: {src}")
     people = parse_connections(read_connections_csv(src))
+    if not people:
+        raise SystemExit(
+            f"Found the file but parsed 0 connections from:\n  {src}\n"
+            "Is this the Connections.csv from a LinkedIn data export?")
     report(people)
 
     if args.dry_run:

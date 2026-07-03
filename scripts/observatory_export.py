@@ -32,7 +32,9 @@ DEFAULT_OUT = os.path.join(REPO_ROOT, "dashboard", "observatory.html")
 
 def load_people(db_path):
     if not os.path.exists(db_path):
-        raise SystemExit(f"DB not found: {db_path}\nRun /linkedin-import first.")
+        raise SystemExit(
+            f"DB not found: {db_path}\n"
+            "Run this first:  python3 scripts/linkedin_import.py")
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     rows = conn.execute("""

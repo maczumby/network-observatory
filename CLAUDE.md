@@ -50,8 +50,8 @@ That's the default flow. Steps 2 and 3 are both quick and safe to run.
 
 - **Python 3.8+.** No packages to install — the scripts use the standard library
   only. Do not add dependencies or a virtualenv unless the user asks.
-- **A web browser** to view the output. The HTML is fully offline; nothing is
-  uploaded anywhere.
+- **A web browser** to view the output. The HTML is fully self-contained (fonts
+  embedded, no external requests) and works offline; nothing is uploaded anywhere.
 
 ---
 
