@@ -428,6 +428,23 @@ def cmd_radar(conn, a):
                 + (f" ({mode})" if mode else ""),
                 [f"last touch {li['occurred_on']}: {li['summary']}"])
 
+    # 3) explicitly flagged to reconnect — an intentional target, surface it even with
+    #    no history (a weaker signal than a concrete loop, but it's the user's own intent)
+    for r in conn.execute("""SELECT connection_id, priority FROM person_meta
+            WHERE priority IN ('important','critical')""").fetchall():
+        cid = r["connection_id"]
+        if cid in cands:
+            continue  # already covered by a stronger signal
+        p = person_row(conn, cid)
+        if not p:
+            continue
+        li = last_interaction(conn, cid)
+        facts = ["you flagged them to reconnect"]
+        if li:
+            facts.append(f"last touch {li['occurred_on']}: {li['summary']}")
+        add(cid, "flagged", 70 if r["priority"] == "critical" else 60,
+            f"{p['full_name']} — you flagged them to reconnect", facts)
+
     ranked = sorted(cands.values(), key=lambda x: x["score"], reverse=True)[:limit]
     if not ranked:
         print("No strong reach-outs right now. (Trellis stays quiet when there's "
