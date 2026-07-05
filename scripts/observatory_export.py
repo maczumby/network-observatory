@@ -112,6 +112,44 @@ def render(payload, out_path):
     return len(html)
 
 
+def build_summary(people, payload):
+    """A short, plain-language readout an agent can paste into a chat."""
+    n = len(people)
+    span = payload["stats"]["span"]
+    companies = Counter(p["company"] for p in people if p["company"])
+    top = companies.most_common(5)
+    years = [p["year"] for p in people if p["year"]]
+    ymax = max(years) if years else None
+    reconn = sum(1 for p in people
+                 if p["year"] and p["year"] <= 2016 and (p["rank"] or 0) >= 6)
+    solo = sum(1 for _, k in companies.items() if k == 1)
+    senior = sum(1 for p in people if (p["rank"] or 0) >= 6)
+    notable = payload["insights"]["notableCo"]
+
+    lines = [f"Your network map is ready — {n:,} connections spanning {span}."]
+    if top:
+        lines.append("Biggest circles: "
+                     + ", ".join(f"{c} ({k})" for c, k in top) + ".")
+    bits = []
+    if notable and companies.get(notable):
+        bits.append(f"{companies[notable]} now at {notable}")
+    if reconn:
+        bits.append(f"{reconn} from your early days who are senior now "
+                    "(worth reconnecting)")
+    if solo:
+        bits.append(f"{solo} companies where you're the only one you know")
+    if senior:
+        bits.append(f"{senior} now director-level or above")
+    if bits:
+        lines.append("Worth a look: " + "; ".join(bits) + ".")
+    lines.append(
+        "Explore it three ways — Field (clusters), Orbit (you at the center, "
+        "time as distance), and Strata (ranked columns). Color by company, role, "
+        "seniority, or era. Search anyone, filter and combine, and click a star "
+        "for details, a private note, or to flag a reconnect.")
+    return "\n".join(lines)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=DEFAULT_DB)
@@ -129,6 +167,12 @@ def main():
     print(f"  Span           : {s['span']}")
     print(f"  Notable pick   : {payload['insights']['notableCo']}")
     print(f"  Wrote          : {args.out}  ({size//1024} KB)")
+
+    # Plain readout to hand the user (paste into chat, or read aloud).
+    print("\n----- share this with the user -----")
+    print(build_summary(people, payload))
+    print("------------------------------------")
+    print(f"\nSend the user this file to open: {args.out}")
     if args.open:
         webbrowser.open("file://" + os.path.abspath(args.out))
 

@@ -33,6 +33,12 @@ python3 scripts/observatory_export.py --open
 Step 1 creates `data/linkedin.db`. Step 2 creates `dashboard/observatory.html`, a
 single file you can open any time or send to yourself.
 
+**Running through a hosted agent** (like Agent37/Hermes) instead of on your own
+machine? The agent can't open a browser on your screen, so skip `--open`. Have it
+build `observatory.html` and send you that one file to open locally — it's
+fully self-contained. The export step prints a short summary the agent can share
+with you too.
+
 ## Getting your LinkedIn export
 
 LinkedIn → **Settings → Data Privacy → Get a copy of your data**. Choose the

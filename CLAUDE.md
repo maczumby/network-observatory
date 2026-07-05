@@ -18,7 +18,9 @@ time unless they ask to.
 1. **Find the export.** If they attached or named a file, use that path. Otherwise
    the export is probably in `exports/`, the repo root, or their Downloads — the
    import script searches all of those on its own. If you can move the file, put
-   it in `exports/` first.
+   it in `exports/` first. You do **not** need to unzip it — the importer reads a
+   `.zip` directly. On a hosted/chat agent, the user's uploaded file lands in your
+   workspace; use it wherever the platform saved it.
 
 2. **Import it.**
    ```bash
@@ -28,21 +30,29 @@ time unless they ask to.
    This writes `data/linkedin.db` and prints a summary (count, date span, top
    companies, function mix). Read the summary back to the user in plain language.
 
-3. **Build the visual.**
+3. **Build and show the map.**
    ```bash
-   python3 scripts/observatory_export.py --open
+   python3 scripts/observatory_export.py
    ```
-   This writes `dashboard/observatory.html` and opens it in the browser. If
-   `--open` can't launch a browser (headless machine), tell them the file path so
-   they can open it themselves.
+   This writes the self-contained `dashboard/observatory.html` and prints a short,
+   plain-language summary you can share.
+   - **On the user's own computer:** add `--open` to open it in their browser.
+   - **On a hosted / cloud agent** (the user is in a chat and you can't reach their
+     screen — e.g. Agent37/Hermes): do **not** try to open a browser, and do **not**
+     hand over an internal IP or a `localhost`/preview URL. Those are unreachable or
+     auth-gated, and you cannot mint a working link (signing needs the account's
+     secret key, which the agent doesn't have). Instead, **send the
+     `dashboard/observatory.html` file to the user in the chat** (or tell them to
+     open it from the platform's Files browser). It's fully self-contained, so they
+     just open it — nothing to install or unzip. Then **paste the summary** the
+     exporter printed.
 
-4. **Tell them what they're looking at.** Point out the three views (Field /
-   Orbit / Strata), the color-by options, search, filters, the preset chips, and
-   that clicking a star opens a detail panel where they can add a private note and
-   flag someone to reconnect. Mention that function and seniority are *inferred
-   from job titles*, not stated facts.
+4. **What they can explore** is covered by that summary: three views (Field / Orbit
+   / Strata), color by company / role / seniority / era, search, filters, and
+   clicking a star for details, a private note, or a reconnect flag. Remind them
+   that function and seniority are *inferred from job titles*, not stated facts.
 
-That's the default flow. Steps 2 and 3 are both quick and safe to run.
+When they later say "show me my map," just rebuild (step 3) and send the fresh file.
 
 ---
 
