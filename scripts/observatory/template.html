@@ -451,28 +451,23 @@ App.prototype = {
   },
   _co:function(p){ return (p.company && p.company!=='Independent / unknown') ? p.company : ''; },
   refreshSyncBtn:function(){ var b=document.getElementById('obs-sync-btn'); if(!b) return; var s=this.collectSync(); var n=s.flags.length+s.notes.length; if(n>0){ b.style.display='inline-flex'; b.textContent='⇪ SYNC '+n+' TO YOUR AGENT'; } else { b.style.display='none'; } },
-  syncPayload:function(){ var self=this, s=this.collectSync(); return {
-      flags: s.flags.map(function(p){ return {name:p.name, company:self._co(p), url:p.url}; }),
-      notes: s.notes.map(function(o){ return {name:o.p.name, company:self._co(o.p), url:o.p.url, note:o.note}; }) }; },
-  syncText:function(){ var self=this, s=this.collectSync(); var L=['TRELLIS SYNC — paste this to your agent (it will save these into Trellis).',''];
+  syncText:function(){ var self=this, s=this.collectSync(); var L=['Save these into my Trellis relationship memory — flag these people to reconnect and store the notes:',''];
     if(s.flags.length){ L.push('Flag to reconnect:'); s.flags.forEach(function(p){ L.push('- '+p.name+(self._co(p)?' ('+self._co(p)+')':'')); }); L.push(''); }
     if(s.notes.length){ L.push('Notes:'); s.notes.forEach(function(o){ L.push('- '+o.p.name+(self._co(o.p)?' ('+self._co(o.p)+')':'')+': '+o.note); }); }
     return L.join('\n'); },
   openSync:function(){ this._syncOpen=true; this.renderSync(); },
   closeSync:function(){ this._syncOpen=false; this.renderSync(); },
   copySync:function(){ var t=this.syncText(); try{ navigator.clipboard.writeText(t); }catch(e){} var ta=document.getElementById('obs-sync-text'); if(ta){ ta.focus(); ta.select(); try{ document.execCommand('copy'); }catch(e){} } var b=document.getElementById('obs-sync-copy'); if(b) b.textContent='Copied ✓'; },
-  downloadSync:function(){ var data=JSON.stringify(this.syncPayload(),null,2); var blob=new Blob([data],{type:'application/json'}); var url=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=url; a.download='trellis-sync.json'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(function(){ URL.revokeObjectURL(url); },1000); },
   renderSync:function(){
     var el=document.getElementById('r-sync'); if(!this._syncOpen){ el.style.display='none'; el.innerHTML=''; return; }
     el.style.display='';
     var h='<div data-act="closeSync" style="position:absolute; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; background:rgba(4,5,11,0.74); backdrop-filter:blur(6px); padding:24px;">';
     h+='<div data-stop="1" style="width:min(560px,92vw); max-height:90vh; overflow:auto; background:linear-gradient(180deg, rgba(18,23,44,0.97), rgba(9,12,22,0.98)); border:1px solid rgba(255,255,255,0.12); border-radius:20px; padding:24px 28px; box-shadow:0 40px 120px rgba(0,0,0,0.7);">';
     h+='<div style="font-family:\'IBM Plex Mono\',monospace; font-size:11px; letter-spacing:0.2em; color:#8ab4ff; margin-bottom:10px;">SYNC TO YOUR AGENT</div>';
-    h+='<div style="font-size:14px; color:#c6cde3; line-height:1.5; margin-bottom:14px;">Your flags and notes live in this page. Paste the text below into your agent chat and it will save them into Trellis (your relationship memory). Nothing is sent from here.</div>';
+    h+='<div style="font-size:14px; color:#c6cde3; line-height:1.5; margin-bottom:14px;">Your flags and notes live in this page. To save them, <b>paste the text below into your agent chat</b> — it\'s written as an instruction your agent will follow. Nothing is sent from here on its own.</div>';
     h+='<textarea id="obs-sync-text" readonly style="width:100%; min-height:170px; resize:vertical; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.14); border-radius:11px; padding:12px 14px; color:#eef1f8; font-family:\'IBM Plex Mono\',monospace; font-size:12.5px; line-height:1.5;">'+esc(this.syncText())+'</textarea>';
     h+='<div style="margin-top:14px; display:flex; gap:10px; align-items:center;">';
     h+='<button id="obs-sync-copy" data-act="copySync" style="background:#8ab4ff; color:#0a0e18; border:none; font-weight:600; font-size:14px; font-family:inherit; padding:10px 18px; border-radius:11px; cursor:pointer;">Copy for my agent</button>';
-    h+='<button data-act="downloadSync" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14); color:#c6cde3; font-size:13px; font-family:inherit; padding:10px 16px; border-radius:11px; cursor:pointer;">Download JSON</button>';
     h+='<button data-act="closeSync" style="margin-left:auto; background:transparent; border:1px solid rgba(255,255,255,0.14); color:#aab2cc; font-size:13px; font-family:inherit; padding:10px 16px; border-radius:11px; cursor:pointer;">Close</button>';
     h+='</div></div></div>'; el.innerHTML=h;
   },
@@ -682,7 +677,6 @@ function wire(app){
       case 'openSync': app.openSync(); break;
       case 'closeSync': app.closeSync(); break;
       case 'copySync': app.copySync(); break;
-      case 'downloadSync': app.downloadSync(); break;
       case 'clearFilter': app.clearFilter(); break;
       case 'setLayout': app.setLayout(arg); break;
       case 'setDim': app.setDim(arg); break;

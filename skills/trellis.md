@@ -47,12 +47,9 @@ python3 scripts/trellis.py dupes            # possible duplicate people to confi
 
 The Observatory map reflects Trellis: people you've flagged show up highlighted and
 your notes are pre-filled. When you flag or note someone *in the map*, click **"Sync
-to your agent"** — it gives you a copy-paste block. Paste it to your agent, which folds
-it back into Trellis:
-
-```bash
-python3 scripts/trellis.py apply --file trellis-sync.json   # or --json '...'
-```
+to your agent"** — it gives you a plain-text block listing who to flag and your notes.
+Paste that into your agent chat. Your agent reads it and saves each person into Trellis
+(via `capture`, or `apply`) — no file, no JSON required from you.
 
 ## Feeding Trellis from other sources (optional)
 

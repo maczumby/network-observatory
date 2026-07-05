@@ -78,8 +78,11 @@ by normalizing each item to an event and calling `trellis.py ingest` (idempotent
 tools. With nothing connected, recall + loops still work from the LinkedIn graph.
 
 **Map ↔ Trellis.** The Observatory reflects Trellis (flagged people highlighted, notes
-pre-filled). When the user flags/notes people in the map and pastes the "Sync to your
-agent" block to you, fold it in with `trellis.py apply --json '…'` (or `--file`).
+pre-filled). When the user flags/notes people in the map, its "Sync to your agent" panel
+gives them a plain-text block (a list of people to flag + notes) that they paste into
+the chat. Read that block, then save each person — call `trellis.py capture` per person
+(`--priority important` for a flag, `--note` for a note) or build the JSON and call
+`trellis.py apply`. It's a text instruction, not a file; no JSON required from the user.
 
 Keep the trust contract: cite sources, show the reason, never invent, confirm
 duplicates (`trellis.py dupes` / `merge`), never auto-send.
