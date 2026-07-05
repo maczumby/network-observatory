@@ -37,10 +37,22 @@ def load_people(db_path):
             "Run this first:  python3 scripts/linkedin_import.py")
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    rows = conn.execute("""
-        SELECT full_name, first_name, last_name, company, title, func,
-               is_founder, rank, connected_year, connected_month, url, email
-        FROM connections ORDER BY connected_year DESC, id DESC""").fetchall()
+    # Trellis tables may not exist yet (observatory can run before trellis is used).
+    has_trellis = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='person_meta'"
+    ).fetchone() is not None
+    if has_trellis:
+        rows = conn.execute("""
+            SELECT c.*, pm.priority AS tr_priority,
+                   (SELECT content FROM notes n WHERE n.connection_id=c.id
+                    ORDER BY n.created_at DESC LIMIT 1) AS tr_note
+            FROM connections c LEFT JOIN person_meta pm ON pm.connection_id=c.id
+            WHERE c.source NOT LIKE 'merged_into_%'
+            ORDER BY c.connected_year DESC, c.id DESC""").fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT *, NULL AS tr_priority, NULL AS tr_note
+            FROM connections ORDER BY connected_year DESC, id DESC""").fetchall()
     conn.close()
     people = []
     for r in rows:
@@ -57,6 +69,9 @@ def load_people(db_path):
             "month": r["connected_month"],
             "url": r["url"] or "",
             "email": r["email"] or "",
+            # Trellis state baked in so the map reflects your memory:
+            "flag": 1 if (r["tr_priority"] in ("important", "critical")) else 0,
+            "note": r["tr_note"] or "",
         })
     return people
 

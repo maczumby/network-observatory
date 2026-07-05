@@ -54,6 +54,7 @@
       </div>
       <div class="obs-title" style="font-family:'Instrument Serif',serif; font-size:28px; line-height:1.04; margin-top:7px; color:#eef1f8; letter-spacing:0.01em;">Your network, for the first time</div>
       <button data-act="openReading" style="margin-top:10px; display:inline-flex; align-items:center; gap:7px; background:rgba(245,199,126,0.1); border:1px solid rgba(245,199,126,0.32); color:#f2d29a; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.08em; padding:6px 11px; border-radius:9px; cursor:pointer;">✦ READ MY NETWORK</button>
+      <button id="obs-sync-btn" data-act="openSync" style="display:none; margin-top:10px; margin-left:8px; align-items:center; gap:7px; background:rgba(138,180,255,0.12); border:1px solid rgba(138,180,255,0.4); color:#cddaffff; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.08em; padding:6px 11px; border-radius:9px; cursor:pointer;"></button>
     </div>
     <div style="pointer-events:auto; text-align:right; font-family:'IBM Plex Mono',monospace; font-size:12px; color:#8b93b0; line-height:1.75;">
       <div><span id="stat-people" style="color:#e9ecf5;"></span> connections</div>
@@ -125,6 +126,9 @@
   <!-- Reading modal -->
   <div id="r-reading" style="display:none;"></div>
 
+  <!-- Sync-to-agent modal -->
+  <div id="r-sync" style="display:none;"></div>
+
 </div>
 
 <script>
@@ -156,6 +160,7 @@ function App(){
   this.facetOptions = { company:[], role:[], sen:[], era:[] };
   this.notes = {};
   this.recon = {};
+  this.byKey = {};
   this.companyCount = {};
   this.labels = [];
   this.ringRadii = [];
@@ -198,14 +203,22 @@ App.prototype = {
       var company = (d.company&&d.company.trim())? d.company.trim() : 'Independent / unknown';
       var title = (d.title&&d.title.trim())? d.title.trim() : '—';
       var yr = year||2026;
-      people.push({
-        id:id++, name:d.name, first:d.first||'', last:d.last||'', company:company, title:title,
+      // Stable identity key so flags/notes survive regeneration (not the row index).
+      var key = (d.url&&d.url.trim()) ? ('u:'+d.url.trim().toLowerCase().replace(/\/+$/,''))
+                                      : ('n:'+(d.name||'').toLowerCase()+'|'+company.toLowerCase());
+      var p = {
+        id:id++, pkey:key, name:d.name, first:d.first||'', last:d.last||'', company:company, title:title,
         func:d.func||'Other', isFounder:!!d.is_founder, rank:d.rank||2, year:yr, month:month,
         era:era, eraIdx:eraIdx, url:d.url||'', email:d.email||'',
         connectedLabel: (month? self.MONTHS[month-1]+' ' : '') + (year||''),
         agoLabel: year? ((2026-year<=0)?'this year':((2026-year===1)?'1 year ago':(2026-year)+' years ago')) : 'date unknown',
         r1:self.rand(), r2:self.rand(), x:0,y:0,a:0,ton:1,big:false,rec:0,sizeMul:1
-      });
+      };
+      people.push(p);
+      self.byKey[key]=p;
+      // Seed from Trellis (baked in by the exporter); local edits already loaded win.
+      if(d.flag && self.recon[key]===undefined) self.recon[key]=true;
+      if(d.note && (self.notes[key]===undefined||self.notes[key]==='')) self.notes[key]=d.note;
     });
     this.people=people;
     var cc={}; people.forEach(function(p){cc[p.company]=(cc[p.company]||0)+1;}); this.companyCount=cc;
@@ -426,8 +439,43 @@ App.prototype = {
   applyChip:function(c){ if(this.chipActive(c)){ this.clearFilter(); return; } var inp=document.getElementById('obs-search-input'); if(inp) inp.value=''; if(c.special){ this.state.facets={}; this.state.special=c.special; this.state.query=''; this.state.openFacet=null; } else { this.state.facets=Object.assign({},c.facets); this.state.special=null; this.state.query=''; this.state.openFacet=null; } this.computeMatch(); this.render(); },
   applyReading:function(facets){ this.state.facets=facets; this.state.special=null; this.state.query=''; this.state.showReading=false; this.state.openFacet=null; var inp=document.getElementById('obs-search-input'); if(inp) inp.value=''; this.computeMatch(); this.render(); this.renderReading(); },
   applyReadingSpecial:function(s){ this.state.facets={}; this.state.special=s; this.state.query=''; this.state.showReading=false; this.state.openFacet=null; var inp=document.getElementById('obs-search-input'); if(inp) inp.value=''; this.computeMatch(); this.render(); this.renderReading(); },
-  onNote:function(v){ var id=this.state.selectedId; if(id!=null){ this.notes[id]=v; try{ localStorage.setItem('obs_notes',JSON.stringify(this.notes)); }catch(e){} } },
-  toggleReconnect:function(){ var id=this.state.selectedId; if(id==null) return; this.recon[id]=!this.recon[id]; try{ localStorage.setItem('obs_recon',JSON.stringify(this.recon)); }catch(e){} var b=document.getElementById('obs-recon-btn'); if(b){ var on=!!this.recon[id]; b.textContent=on?'✓ Flagged to reconnect':'Flag to reconnect'; b.setAttribute('style', this.reconStyle(on)); } },
+  onNote:function(v){ var p=this.people[this.state.selectedId]; if(p){ this.notes[p.pkey]=v; try{ localStorage.setItem('obs_notes',JSON.stringify(this.notes)); }catch(e){} this.refreshSyncBtn(); } },
+  toggleReconnect:function(){ var p=this.people[this.state.selectedId]; if(!p) return; this.recon[p.pkey]=!this.recon[p.pkey]; try{ localStorage.setItem('obs_recon',JSON.stringify(this.recon)); }catch(e){} var b=document.getElementById('obs-recon-btn'); if(b){ var on=!!this.recon[p.pkey]; b.textContent=on?'✓ Flagged to reconnect':'Flag to reconnect'; b.setAttribute('style', this.reconStyle(on)); } this.refreshSyncBtn(); },
+
+  // ---------------- sync to agent (map -> Trellis) ----------------
+  collectSync:function(){
+    var self=this, flags=[], notes=[];
+    Object.keys(this.recon||{}).forEach(function(k){ if(self.recon[k] && self.byKey[k]) flags.push(self.byKey[k]); });
+    Object.keys(this.notes||{}).forEach(function(k){ var v=self.notes[k]; if(v && v.trim() && self.byKey[k]) notes.push({p:self.byKey[k], note:v.trim()}); });
+    return {flags:flags, notes:notes};
+  },
+  _co:function(p){ return (p.company && p.company!=='Independent / unknown') ? p.company : ''; },
+  refreshSyncBtn:function(){ var b=document.getElementById('obs-sync-btn'); if(!b) return; var s=this.collectSync(); var n=s.flags.length+s.notes.length; if(n>0){ b.style.display='inline-flex'; b.textContent='⇪ SYNC '+n+' TO YOUR AGENT'; } else { b.style.display='none'; } },
+  syncPayload:function(){ var self=this, s=this.collectSync(); return {
+      flags: s.flags.map(function(p){ return {name:p.name, company:self._co(p), url:p.url}; }),
+      notes: s.notes.map(function(o){ return {name:o.p.name, company:self._co(o.p), url:o.p.url, note:o.note}; }) }; },
+  syncText:function(){ var self=this, s=this.collectSync(); var L=['TRELLIS SYNC — paste this to your agent (it will save these into Trellis).',''];
+    if(s.flags.length){ L.push('Flag to reconnect:'); s.flags.forEach(function(p){ L.push('- '+p.name+(self._co(p)?' ('+self._co(p)+')':'')); }); L.push(''); }
+    if(s.notes.length){ L.push('Notes:'); s.notes.forEach(function(o){ L.push('- '+o.p.name+(self._co(o.p)?' ('+self._co(o.p)+')':'')+': '+o.note); }); }
+    return L.join('\n'); },
+  openSync:function(){ this._syncOpen=true; this.renderSync(); },
+  closeSync:function(){ this._syncOpen=false; this.renderSync(); },
+  copySync:function(){ var t=this.syncText(); try{ navigator.clipboard.writeText(t); }catch(e){} var ta=document.getElementById('obs-sync-text'); if(ta){ ta.focus(); ta.select(); try{ document.execCommand('copy'); }catch(e){} } var b=document.getElementById('obs-sync-copy'); if(b) b.textContent='Copied ✓'; },
+  downloadSync:function(){ var data=JSON.stringify(this.syncPayload(),null,2); var blob=new Blob([data],{type:'application/json'}); var url=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=url; a.download='trellis-sync.json'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(function(){ URL.revokeObjectURL(url); },1000); },
+  renderSync:function(){
+    var el=document.getElementById('r-sync'); if(!this._syncOpen){ el.style.display='none'; el.innerHTML=''; return; }
+    el.style.display='';
+    var h='<div data-act="closeSync" style="position:absolute; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; background:rgba(4,5,11,0.74); backdrop-filter:blur(6px); padding:24px;">';
+    h+='<div data-stop="1" style="width:min(560px,92vw); max-height:90vh; overflow:auto; background:linear-gradient(180deg, rgba(18,23,44,0.97), rgba(9,12,22,0.98)); border:1px solid rgba(255,255,255,0.12); border-radius:20px; padding:24px 28px; box-shadow:0 40px 120px rgba(0,0,0,0.7);">';
+    h+='<div style="font-family:\'IBM Plex Mono\',monospace; font-size:11px; letter-spacing:0.2em; color:#8ab4ff; margin-bottom:10px;">SYNC TO YOUR AGENT</div>';
+    h+='<div style="font-size:14px; color:#c6cde3; line-height:1.5; margin-bottom:14px;">Your flags and notes live in this page. Paste the text below into your agent chat and it will save them into Trellis (your relationship memory). Nothing is sent from here.</div>';
+    h+='<textarea id="obs-sync-text" readonly style="width:100%; min-height:170px; resize:vertical; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.14); border-radius:11px; padding:12px 14px; color:#eef1f8; font-family:\'IBM Plex Mono\',monospace; font-size:12.5px; line-height:1.5;">'+esc(this.syncText())+'</textarea>';
+    h+='<div style="margin-top:14px; display:flex; gap:10px; align-items:center;">';
+    h+='<button id="obs-sync-copy" data-act="copySync" style="background:#8ab4ff; color:#0a0e18; border:none; font-weight:600; font-size:14px; font-family:inherit; padding:10px 18px; border-radius:11px; cursor:pointer;">Copy for my agent</button>';
+    h+='<button data-act="downloadSync" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14); color:#c6cde3; font-size:13px; font-family:inherit; padding:10px 16px; border-radius:11px; cursor:pointer;">Download JSON</button>';
+    h+='<button data-act="closeSync" style="margin-left:auto; background:transparent; border:1px solid rgba(255,255,255,0.14); color:#aab2cc; font-size:13px; font-family:inherit; padding:10px 16px; border-radius:11px; cursor:pointer;">Close</button>';
+    h+='</div></div></div>'; el.innerHTML=h;
+  },
   isReconnGold:function(p){ return p.eraIdx<=1 && p.rank>=6; },
 
   computeMatch:function(){
@@ -553,8 +601,8 @@ App.prototype = {
     if(S.selectedId==null || !this.people[S.selectedId]){ el.style.display='none'; el.innerHTML=''; this._lastPanelId=null; return; }
     var sel=this.people[S.selectedId];
     var glow=this.hexA(sel.hex,0.6);
-    var note=this.notes[sel.id]||'';
-    var on=!!this.recon[sel.id];
+    var note=this.notes[sel.pkey]||'';
+    var on=!!this.recon[sel.pkey];
     var reconnGold = this.isReconnGold(sel);
     el.style.display='';
     var h='';
@@ -631,6 +679,10 @@ function wire(app){
     switch(act){
       case 'openReading': app.openReading(); break;
       case 'closeReading': app.closeReading(); break;
+      case 'openSync': app.openSync(); break;
+      case 'closeSync': app.closeSync(); break;
+      case 'copySync': app.copySync(); break;
+      case 'downloadSync': app.downloadSync(); break;
       case 'clearFilter': app.clearFilter(); break;
       case 'setLayout': app.setLayout(arg); break;
       case 'setDim': app.setDim(arg); break;
@@ -652,6 +704,9 @@ function wire(app){
   document.getElementById('r-reading').addEventListener('click', function(e){
     if(e.target.closest('[data-stop]') && !e.target.closest('[data-act]')) e.stopPropagation();
   }, true);
+  document.getElementById('r-sync').addEventListener('click', function(e){
+    if(e.target.closest('[data-stop]') && !e.target.closest('[data-act]')) e.stopPropagation();
+  }, true);
   document.addEventListener('input', function(e){
     var t=e.target; if(!t.getAttribute) return; var act=t.getAttribute('data-act');
     if(act==='search') app.onSearch(t.value);
@@ -670,6 +725,7 @@ function boot(){
   wire(app);
   app.render();
   app.renderReading();
+  app.refreshSyncBtn();
   app.initCanvas();
   window.__obs=app;
 }

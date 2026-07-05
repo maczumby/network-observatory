@@ -56,6 +56,34 @@ When they later say "show me my map," just rebuild (step 3) and send the fresh f
 
 ---
 
+## Trellis — the relationship memory (third capability)
+
+`scripts/trellis.py` is a local relationship memory on the same DB as the graph. It
+remembers who people are, what the user owes them, and who's worth reaching out to —
+every answer citing its source. Run it when the user asks relationship questions:
+
+- "who is X / when did we last talk / what do I owe them / who do I know at Y" →
+  `python3 scripts/trellis.py recall "<query>"`
+- "log this" / after a meeting or intro → `trellis.py capture --name … [--interaction …
+  --loop … --note … --priority … --mode …]`. You turn the user's words into the flags;
+  Trellis just writes.
+- "who did I leave hanging / who should I reach out to" → `trellis.py loops` / `radar`.
+  Read the reason lines back; if radar is quiet, say so — don't invent reasons.
+- "help me write to X" → `trellis.py context --name X`, then draft **only** from those
+  facts. Never invent shared history. **Never send** — draft for the user to review.
+
+**Source-adaptive.** If you have email/calendar/meeting tools connected, enrich Trellis
+by normalizing each item to an event and calling `trellis.py ingest` (idempotent on
+`source_ref`). Trellis never fetches or stores tokens — that's your job with your own
+tools. With nothing connected, recall + loops still work from the LinkedIn graph.
+
+**Map ↔ Trellis.** The Observatory reflects Trellis (flagged people highlighted, notes
+pre-filled). When the user flags/notes people in the map and pastes the "Sync to your
+agent" block to you, fold it in with `trellis.py apply --json '…'` (or `--file`).
+
+Keep the trust contract: cite sources, show the reason, never invent, confirm
+duplicates (`trellis.py dupes` / `merge`), never auto-send.
+
 ## Requirements
 
 - **Python 3.8+.** No packages to install — the scripts use the standard library

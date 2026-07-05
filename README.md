@@ -79,6 +79,25 @@ recognize titles like "Directeur des ventes." Everything else still works. If yo
 want your language supported, it's a small change to the keyword lists in
 `scripts/linkedin_import.py` — ask your agent to add it.
 
+## Trellis — remembering, not just seeing
+
+The map shows your network; **Trellis** helps you tend it. It's a local relationship
+memory on the same data: ask "who is X, when did we last talk, what do I owe them,"
+log what happened when you meet someone, and get a short, reasoned list of who's worth
+reaching out to. Every answer cites where it came from, it drafts only from real facts
+(never invents), and it never sends anything.
+
+```bash
+python3 scripts/trellis.py recall "Maya"     # who is she, our history, open loops
+python3 scripts/trellis.py loops             # who you left hanging
+python3 scripts/trellis.py radar             # a few reach-outs worth making, with reasons
+```
+
+It works from your LinkedIn graph and what you tell it, and gets richer if your agent
+feeds it meetings, email, or calendar — no accounts or tokens, all local. When you flag
+or note people in the map, the "Sync to your agent" button hands them back to Trellis.
+See `skills/trellis.md`.
+
 ## A note on what's inferred
 
 Your export gives a name, company, title, and connection date. Function
