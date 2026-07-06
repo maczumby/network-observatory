@@ -115,6 +115,16 @@ is fully self-contained — fonts and everything else are embedded, so it makes 
 network calls at all and works with the internet off. Your data never leaves your
 machine.
 
+## Keeping it current
+
+The tool improves over time. To get the latest, just tell your agent **"update the
+network-observatory tool."** It fetches the newest version, copies it over the code, and
+rebuilds your map — **your data, flags, and notes are never touched** (they live in
+`data/`, which updates leave alone). The `VERSION` file shows what you have.
+
+Under the hood that's `python3 scripts/update.py` (or `--from-zip PATH` if someone sent
+you a new zip instead of a link).
+
 ## Requirements
 
 - Python 3.8 or newer (standard library only — nothing to `pip install`)

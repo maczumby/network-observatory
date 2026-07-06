@@ -87,6 +87,22 @@ the chat. Read that block, then save each person — call `trellis.py capture` p
 Keep the trust contract: cite sources, show the reason, never invent, confirm
 duplicates (`trellis.py dupes` / `merge`), never auto-send.
 
+## Updating the tool
+
+When the user says "update the network-observatory tool" (or asks for the latest):
+
+```bash
+python3 scripts/update.py                 # auto: git pull if a clone, else download latest
+python3 scripts/update.py --from-zip PATH # if the user sent you a new zip
+```
+
+It fetches the latest code, copies it over scripts/skills/docs, and rebuilds the map.
+It **never touches `data/`, `exports/`, or `dashboard/`** — the user's graph, flags, and
+notes are safe — and the DB only ever adds tables, so a newer version keeps working with
+existing memory. The `VERSION` file shows what's installed; tell the user the old→new
+version after updating. You can't be *pushed* updates on a hosted VM — this is always
+pull-on-request.
+
 ## Requirements
 
 - **Python 3.8+.** No packages to install — the scripts use the standard library
