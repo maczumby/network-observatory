@@ -50,8 +50,9 @@ few minutes. Drop the `.zip` into the `exports/` folder here.
 - **A local database** (`data/linkedin.db`) of every connection: name, company,
   title, when you connected, plus a function and seniority level read from each
   job title.
-- **A visual explorer** with three ways to see the same people: clusters floating
-  in space, orbits with you at the center and time as distance, or ranked columns.
+- **A visual explorer** with three ways to see the same people: Groups (clusters
+  that share an attribute, with constellation lines on hover), Timeline (you at the
+  center, time as distance), or Ranked columns.
   Color by company, role, seniority, or era. Search anyone, filter and combine,
   and click a star to read details, jot a private note, or flag someone to
   reconnect with.

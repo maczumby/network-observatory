@@ -19,8 +19,9 @@ python3 scripts/observatory_export.py             # build only
 Output: `dashboard/observatory.html` (one file, ~400 KB, works fully offline).
 
 ## What's in the map
-- **Three views** (bottom bar): *Field* (clusters floating in space), *Orbit*
-  (you at center, time as distance), *Strata* (ranked columns).
+- **Three views** (bottom bar): *Groups* (clusters that share an attribute — hover
+  one to light up its constellation lines), *Timeline* (you at center, time as
+  distance), *Ranked* (columns by how many people you know).
 - **Color by** company, role, seniority, or era connected. The legend updates live.
 - **Search** any name, company, or title. **Filter** by company, role, seniority,
   or when you connected, and combine those filters.

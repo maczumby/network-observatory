@@ -47,8 +47,8 @@ time unless they ask to.
      just open it — nothing to install or unzip. Then **paste the summary** the
      exporter printed.
 
-4. **What they can explore** is covered by that summary: three views (Field / Orbit
-   / Strata), color by company / role / seniority / era, search, filters, and
+4. **What they can explore** is covered by that summary: three views (Groups /
+   Timeline / Ranked), color by company / role / seniority / era, search, and
    clicking a star for details, a private note, or a reconnect flag. Remind them
    that function and seniority are *inferred from job titles*, not stated facts.
 
@@ -151,7 +151,7 @@ The scripts work fine on their own without this.
 - `scripts/observatory/template.html` — the standalone visual. A canvas starfield
   engine plus a small vanilla reactive layer. Data arrives via a single
   `window.OBS_DATA` object the exporter fills in.
-- To QA a change: rebuild, then open the HTML and check the Field / Orbit / Strata
+- To QA a change: rebuild, then open the HTML and check the Groups / Timeline / Ranked
   views and a detail panel for any text overflow or overlap.
 
 Keep the data honest. Anything the code guesses (function, seniority) must stay

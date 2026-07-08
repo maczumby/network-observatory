@@ -31,10 +31,10 @@
   /* Narrow screens: shrink the header so it can't collide with the centered search. */
   @media (max-width:1120px){
     .obs-title{font-size:22px !important;}
-    .obs-search{width:min(560px,52vw) !important;}
+    .obs-search{width:min(460px,50vw) !important;}
   }
   @media (max-width:900px){
-    .obs-search{width:min(440px,46vw) !important;}
+    .obs-search{width:min(400px,46vw) !important;}
   }
 </style>
 </head>
@@ -42,6 +42,8 @@
 <div class="obs-root">
 
   <canvas id="obs-canvas" style="position:absolute; inset:0; width:100%; height:100%; display:block; cursor:grab;"></canvas>
+  <div style="position:absolute; top:0; left:0; right:0; height:220px; z-index:8; pointer-events:none; background:linear-gradient(to bottom, rgba(4,5,11,0.97) 0%, rgba(5,7,16,0.9) 38%, rgba(6,8,18,0.55) 72%, rgba(6,8,18,0) 100%);"></div>
+  <div style="position:absolute; bottom:0; left:0; right:0; height:160px; z-index:8; pointer-events:none; background:linear-gradient(to top, rgba(4,5,11,0.94) 0%, rgba(5,7,16,0.62) 52%, rgba(6,8,18,0) 100%);"></div>
 
   <div id="obs-tip" style="position:absolute; left:0; top:0; transform:translate(-9999px,-9999px); pointer-events:none; z-index:40; background:rgba(9,12,22,0.94); border:1px solid rgba(255,255,255,0.14); border-radius:11px; padding:9px 12px; backdrop-filter:blur(10px); box-shadow:0 10px 34px rgba(0,0,0,0.55); white-space:nowrap;"></div>
 
@@ -52,9 +54,10 @@
         <div style="width:9px;height:9px;border-radius:50%;background:#f5c77e;box-shadow:0 0 13px 2px rgba(245,199,126,0.75);"></div>
         <div style="font-family:'IBM Plex Mono',monospace; font-size:11.5px; letter-spacing:0.24em; color:#aeb6d0;">OBSERVATORY</div>
       </div>
-      <div class="obs-title" style="font-family:'Instrument Serif',serif; font-size:28px; line-height:1.04; margin-top:7px; color:#eef1f8; letter-spacing:0.01em;">Your network, for the first time</div>
+      <div class="obs-title" style="font-family:'Instrument Serif',serif; font-size:25px; line-height:1.0; margin-top:6px; color:#eef1f8; letter-spacing:0.01em;">Your network</div>
+      <div style="font-family:'Instrument Serif',serif; font-style:italic; font-size:14px; line-height:1.1; margin-top:2px; color:#aeb6d0;">for the first time</div>
       <button data-act="openReading" style="margin-top:10px; display:inline-flex; align-items:center; gap:7px; background:rgba(245,199,126,0.1); border:1px solid rgba(245,199,126,0.32); color:#f2d29a; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.08em; padding:6px 11px; border-radius:9px; cursor:pointer;">✦ READ MY NETWORK</button>
-      <button id="obs-sync-btn" data-act="openSync" style="display:none; margin-top:10px; margin-left:8px; align-items:center; gap:7px; background:rgba(138,180,255,0.12); border:1px solid rgba(138,180,255,0.4); color:#cddaffff; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.08em; padding:6px 11px; border-radius:9px; cursor:pointer;"></button>
+      <button id="obs-sync-btn" data-act="openSync" style="display:none; margin-top:10px; margin-left:8px; align-items:center; gap:7px; background:rgba(138,180,255,0.12); border:1px solid rgba(138,180,255,0.4); color:#cddaff; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.08em; padding:6px 11px; border-radius:9px; cursor:pointer;"></button>
     </div>
     <div style="pointer-events:auto; text-align:right; font-family:'IBM Plex Mono',monospace; font-size:12px; color:#8b93b0; line-height:1.75;">
       <div><span id="stat-people" style="color:#e9ecf5;"></span> connections</div>
@@ -62,63 +65,36 @@
     </div>
   </div>
 
-  <!-- Search + facets + chips (top-center). Input is persistent so focus survives re-renders. -->
-  <div class="obs-search" style="position:absolute; top:20px; left:50%; transform:translateX(-50%); width:min(660px,58vw); z-index:30; display:flex; flex-direction:column; align-items:center; gap:9px; animation:obsFadeIn .6s ease both;">
-    <div style="width:100%; display:flex; align-items:center; gap:11px; background:rgba(13,17,31,0.85); border:1px solid rgba(255,255,255,0.13); border-radius:13px; padding:11px 15px; backdrop-filter:blur(14px); box-shadow:0 12px 44px rgba(0,0,0,0.5);">
+  <!-- Search (top-center). Input is persistent so focus survives re-renders. -->
+  <div class="obs-search" style="position:absolute; top:20px; left:50%; transform:translateX(-50%); width:min(520px,50vw); z-index:30; display:flex; flex-direction:column; align-items:center; gap:9px; animation:obsFadeIn .6s ease both;">
+    <div style="width:100%; display:flex; align-items:center; gap:11px; background:rgba(11,15,28,0.96); border:1px solid rgba(255,255,255,0.14); border-radius:13px; padding:11px 15px; box-shadow:0 12px 44px rgba(0,0,0,0.5);">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex:none;"><circle cx="7" cy="7" r="5.2" stroke="#79839f" stroke-width="1.5"/><line x1="11" y1="11" x2="14.5" y2="14.5" stroke="#79839f" stroke-width="1.5" stroke-linecap="round"/></svg>
       <input id="obs-search-input" data-act="search" placeholder="Search a name, company, or title" style="flex:1; background:transparent; border:none; color:#eef1f8; font-size:15px; font-family:inherit;"/>
       <button data-act="clearFilter" id="obs-clear" style="display:none; flex:none; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#aab2cc; font-family:'IBM Plex Mono',monospace; font-size:11px; padding:4px 9px; border-radius:7px; cursor:pointer;">CLEAR</button>
     </div>
-    <div style="width:100%; display:flex; align-items:center; gap:7px; flex-wrap:wrap; justify-content:center;">
-      <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.14em; color:#7f88a6;">COMBINE</span>
-      <span id="r-facetrow" style="display:contents;"></span>
-    </div>
-    <div id="r-facetmenu" style="width:100%;"></div>
     <div id="r-answer"></div>
-    <div id="r-chips" style="display:flex; flex-wrap:wrap; gap:7px; justify-content:center;"></div>
   </div>
 
-  <!-- Legend (left) shown when not filtering -->
-  <div id="r-legend" style="position:absolute; left:24px; top:88px; width:250px; z-index:20; background:rgba(9,12,22,0.62); border:1px solid rgba(255,255,255,0.09); border-radius:12px; padding:12px 14px; backdrop-filter:blur(10px); max-height:46vh; overflow:auto; animation:obsFadeIn .6s ease both;"></div>
+  <!-- Legend (left) shown when not filtering; render() fills it and toggles display -->
+  <div id="r-legend" style="display:none; position:absolute; left:24px; top:134px; bottom:190px; width:250px; z-index:20; background:rgba(9,12,22,0.72); border:1px solid rgba(255,255,255,0.09); border-radius:12px; padding:12px 14px; backdrop-filter:blur(10px); flex-direction:column; animation:obsFadeIn .6s ease both;"></div>
 
   <!-- Match list (left) shown when filtering -->
-  <div id="r-list" style="display:none; position:absolute; left:24px; top:170px; width:262px; bottom:150px; z-index:22; background:rgba(9,12,22,0.82); border:1px solid rgba(138,180,255,0.22); border-radius:13px; backdrop-filter:blur(13px); box-shadow:0 14px 44px rgba(0,0,0,0.5); flex-direction:column; overflow:hidden; animation:obsFadeIn .4s ease both;"></div>
+  <div id="r-list" style="display:none; position:absolute; left:24px; top:170px; width:262px; bottom:190px; z-index:22; background:rgba(9,12,22,0.88); border:1px solid rgba(138,180,255,0.22); border-radius:13px; backdrop-filter:blur(13px); box-shadow:0 14px 44px rgba(0,0,0,0.5); flex-direction:column; overflow:hidden; animation:obsFadeIn .4s ease both;"></div>
 
-  <!-- Reading-the-stars key (static) -->
-  <div style="position:absolute; left:24px; bottom:90px; width:262px; z-index:20; background:rgba(9,12,22,0.55); border:1px solid rgba(255,255,255,0.08); border-radius:11px; padding:10px 13px; backdrop-filter:blur(9px);">
-    <div style="font-family:'IBM Plex Mono',monospace; font-size:9.5px; letter-spacing:0.14em; color:#7f88a6; margin-bottom:8px;">READING THE STARS</div>
-    <div style="display:flex; align-items:center; gap:9px; margin-bottom:6px;">
-      <span style="display:flex; align-items:center; gap:5px; flex:none; width:52px; justify-content:center;">
-        <span style="width:4px;height:4px;border-radius:50%;background:#cfd6ec;"></span>
-        <span style="width:7px;height:7px;border-radius:50%;background:#cfd6ec;"></span>
-        <span style="width:10px;height:10px;border-radius:50%;background:#cfd6ec;"></span>
-      </span>
-      <span style="font-size:11.5px; color:#aab2cc;">size · junior → senior</span>
-    </div>
-    <div style="display:flex; align-items:center; gap:9px;">
-      <span style="display:flex; align-items:center; gap:6px; flex:none; width:52px; justify-content:center;">
-        <span style="width:8px;height:8px;border-radius:50%;background:rgba(207,214,236,0.28);"></span>
-        <span style="width:8px;height:8px;border-radius:50%;background:#cfd6ec;box-shadow:0 0 7px 1px rgba(207,214,236,0.8);"></span>
-      </span>
-      <span style="font-size:11.5px; color:#aab2cc;">glow · older → recent</span>
+  <!-- Bottom controls: caption + VIEW + COLOR -->
+  <div style="position:absolute; bottom:18px; left:50%; transform:translateX(-50%); z-index:25; display:flex; flex-direction:column; align-items:center; gap:9px; background:rgba(12,16,30,0.86); border:1px solid rgba(255,255,255,0.1); border-radius:16px; padding:11px 15px 10px; backdrop-filter:blur(14px); box-shadow:0 12px 44px rgba(0,0,0,0.55); animation:obsFadeIn .6s ease both; max-width:min(760px,88vw);">
+    <div id="r-viewcap" style="font-size:12.5px; line-height:1.35; color:rgba(208,215,238,0.88); text-align:center;"></div>
+    <div style="display:flex; gap:13px; align-items:center; flex-wrap:wrap; justify-content:center;">
+      <div style="display:flex; align-items:center; gap:6px;">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.14em; color:#7f88a6; padding:0 3px;">VIEW</span>
+        <span id="r-layout" style="display:contents;"></span>
+      </div>
+      <div style="display:flex; align-items:center; gap:6px;">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.14em; color:#7f88a6; padding:0 3px;">COLOR</span>
+        <span id="r-dim" style="display:contents;"></span>
+      </div>
     </div>
   </div>
-
-  <!-- Bottom hint + controls -->
-  <div style="position:absolute; bottom:56px; left:50%; transform:translateX(-50%); z-index:24; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.12em; color:rgba(150,159,190,0.55); text-align:center;">DRAG TO PAN · SCROLL TO ZOOM · CLICK A STAR</div>
-  <div style="position:absolute; bottom:18px; left:50%; transform:translateX(-50%); z-index:25; display:flex; gap:14px; align-items:center; background:rgba(12,16,30,0.84); border:1px solid rgba(255,255,255,0.1); border-radius:14px; padding:8px 11px; backdrop-filter:blur(14px); box-shadow:0 12px 44px rgba(0,0,0,0.55); animation:obsFadeIn .6s ease both;">
-    <div style="display:flex; align-items:center; gap:6px;">
-      <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.14em; color:#7f88a6; padding:0 3px;">VIEW</span>
-      <span id="r-layout" style="display:contents;"></span>
-    </div>
-    <div style="width:1px; height:22px; background:rgba(255,255,255,0.11);"></div>
-    <div style="display:flex; align-items:center; gap:6px;">
-      <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.14em; color:#7f88a6; padding:0 3px;">COLOR</span>
-      <span id="r-dim" style="display:contents;"></span>
-    </div>
-  </div>
-
-  <div style="position:absolute; right:26px; bottom:94px; z-index:20; max-width:240px; text-align:right; font-size:11px; line-height:1.55; color:rgba(150,159,190,0.55);">Clustered by shared attributes — not by who-knows-whom. Real person-to-person links arrive when email &amp; calendar join the memory.</div>
 
   <!-- Detail panel (right) -->
   <div id="r-panel" style="display:none;"></div>
@@ -149,7 +125,7 @@ var CFG = DATA.config || {};
 
 function App(){
   this.state = { layout: CFG.defaultLayout||'field', dim: CFG.defaultDimension||'company',
-                 selectedId:null, query:'', facets:{}, special:null, openFacet:null, showReading:true };
+                 selectedId:null, query:'', facets:{}, special:null, openFacet:null, showReading:true, showLinks:true };
   this.people = [];
   this.legendArr = [];
   this.answerText = '';
@@ -278,7 +254,7 @@ App.prototype = {
   _seed:20260702,
   rand:function(){ var a=this._seed|=0; a=this._seed=a+0x6D2B79F5|0; var t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; },
 
-  sprite:function(hex){ if(!this._sp) this._sp={}; if(this._sp[hex]) return this._sp[hex]; var s=128; var cv=document.createElement('canvas'); cv.width=s; cv.height=s; var x=cv.getContext('2d'); var A=this.hx(hex); var g=x.createRadialGradient(s/2,s/2,0,s/2,s/2,s/2); g.addColorStop(0,'rgba('+A[0]+','+A[1]+','+A[2]+',0.95)'); g.addColorStop(0.28,'rgba('+A[0]+','+A[1]+','+A[2]+',0.5)'); g.addColorStop(1,'rgba('+A[0]+','+A[1]+','+A[2]+',0)'); x.fillStyle=g; x.fillRect(0,0,s,s); this._sp[hex]=cv; return cv; },
+  sprite:function(hex){ if(!this._sp) this._sp={}; if(this._sp[hex]) return this._sp[hex]; var s=128; var cv=document.createElement('canvas'); cv.width=s; cv.height=s; var x=cv.getContext('2d'); var A=this.hx(hex); var g=x.createRadialGradient(s/2,s/2,0,s/2,s/2,s/2); g.addColorStop(0,'rgba('+A[0]+','+A[1]+','+A[2]+',1)'); g.addColorStop(0.14,'rgba('+A[0]+','+A[1]+','+A[2]+',0.62)'); g.addColorStop(0.42,'rgba('+A[0]+','+A[1]+','+A[2]+',0.14)'); g.addColorStop(1,'rgba('+A[0]+','+A[1]+','+A[2]+',0)'); x.fillStyle=g; x.fillRect(0,0,s,s); this._sp[hex]=cv; return cv; },
 
   // ---------------- categories ----------------
   categories:function(dim){
@@ -318,30 +294,39 @@ App.prototype = {
     var self=this; var dim=this.state.dim, layout=this.state.layout;
     var cc=this.categories(dim); var cats=cc.cats, keyOf=cc.keyOf, colorOf=cc.colorOf, ordinal=cc.ordinal;
     this.catList=cats; this.legendArr=this.buildLegend(dim,cats);
-    this.people.forEach(function(p){ var k=keyOf(p); p.key=k; var col=colorOf(k)||self.OTHER; p.hex=col; p.core=self.lerpHex(col,'#ffffff',0.42); p.defA=(0.42+0.58*p.rec)*(k==='__other'?0.6:1); });
+    this.people.forEach(function(p){ var k=keyOf(p); p.key=k; p.isOther=(k==='__other'); var col=colorOf(k)||self.OTHER; p.hex=col; p.core=self.lerpHex(col,'#ffffff',0.5); p.defA=p.isOther?(0.16+0.12*p.rec):(0.55+0.45*p.rec); });
     this.labels=[]; this.ringRadii=[]; this.showYou=false;
     if(layout==='field') this.layoutField(cats);
     else if(layout==='orbit') this.layoutOrbit(dim,cats,ordinal);
     else this.layoutStrata(cats);
+    this.buildEdges(layout,dim);
     this.computeBounds();
   },
   layoutField:function(cats){
     var self=this; var golden=2.399963; var centers={};
     var named=cats.filter(function(c){return c.key!=='__other';});
-    named.forEach(function(c,i){ var ang=i*golden, dist=155+82*Math.sqrt(i); centers[c.key]={x:Math.cos(ang)*dist,y:Math.sin(ang)*dist,r:24+7.2*Math.sqrt(c.count)}; });
-    var other=cats.find(function(c){return c.key==='__other';}); if(other) centers['__other']={x:0,y:0,r:340,faint:true};
-    this.people.forEach(function(p){ var c=centers[p.key]||{x:0,y:0,r:60}; var rr = c.faint ? c.r*(0.32+0.68*Math.sqrt(p.r1)) : c.r*Math.sqrt(p.r1); var a=p.r2*6.28318; p.tx=c.x+Math.cos(a)*rr; p.ty=c.y+Math.sin(a)*rr; });
-    named.forEach(function(c){ var ce=centers[c.key]; self.labels.push({x:ce.x, y:ce.y-ce.r-15, text:self.clip(c.label,20).toUpperCase(), count:c.count, align:'center'}); });
+    named.forEach(function(c,i){ var ang=i*golden, dist=195+100*Math.sqrt(i); centers[c.key]={x:Math.cos(ang)*dist,y:Math.sin(ang)*dist,r:22+8*Math.sqrt(c.count),n:c.count,i:0}; });
+    var dustR=690;
+    this.people.forEach(function(p){ if(p.isOther){ var rr=dustR*Math.sqrt(p.r1); var a=p.r2*6.28318; p.tx=Math.cos(a)*rr; p.ty=Math.sin(a)*rr; return; } var c=centers[p.key]||{x:0,y:0,r:60,n:1,i:0}; var idx=c.i++; var rr2=c.r*Math.sqrt((idx+0.5)/Math.max(1,c.n)); var a2=idx*golden; p.tx=c.x+Math.cos(a2)*rr2; p.ty=c.y+Math.sin(a2)*rr2; });
+    named.forEach(function(c){ var ce=centers[c.key]; self.labels.push({x:ce.x, y:ce.y-ce.r-16, text:self.clip(c.label,20).toUpperCase(), count:c.count, align:'center'}); });
   },
   layoutOrbit:function(dim,cats,ordinal){
-    var self=this; var inner=95, outer=475;
-    var ringOf=function(p){ return dim==='seniority' ? (outer-((p.rank-1)/7)*(outer-inner)) : (inner+(p.eraIdx/4)*(outer-inner)); };
-    var nc=cats.length; var ci={}; cats.forEach(function(c,i){ci[c.key]=i;});
-    this.people.forEach(function(p){ var Rr=ringOf(p)+(p.r1-0.5)*28; var ang; if(ordinal){ ang=p.r2*6.28318; } else { var sw=6.28318/nc; ang=ci[p.key]*sw+(p.r2-0.5)*sw*0.86; } p.tx=Math.cos(ang)*Rr; p.ty=Math.sin(ang)*Rr; });
-    if(dim==='seniority'){ for(var r=1;r<=8;r++) this.ringRadii.push(outer-((r-1)/7)*(outer-inner)); }
-    else { for(var i=0;i<5;i++) this.ringRadii.push(inner+(i/4)*(outer-inner)); }
-    if(ordinal){ cats.forEach(function(c){ var r; if(dim==='seniority'){ r=outer-((Number(c.key)-1)/7)*(outer-inner); } else { var i=self.ERA_KEYS.indexOf(c.key); r=inner+(i/4)*(outer-inner); } self.labels.push({x:Math.cos(-1.05)*r, y:Math.sin(-1.05)*r, text:self.clip(c.label,22).toUpperCase(), count:c.count, align:'left'}); }); }
-    else { var sw=6.28318/nc; cats.forEach(function(c,i){ var ang=i*sw, r=outer+30; var cx=Math.cos(ang); self.labels.push({x:cx*r, y:Math.sin(ang)*r, text:self.clip(c.label,20).toUpperCase(), count:c.count, align:(cx<-0.3?'right':(cx>0.3?'left':'center'))}); }); }
+    var self=this; var inner=95, outer=492, range=outer-inner;
+    var named=cats.filter(function(c){return c.key!=='__other';});
+    var nc=named.length; var ci={}; named.forEach(function(c,i){ci[c.key]=i;});
+    var catCounts={}; this.people.forEach(function(p){ if(!p.isOther) catCounts[p.key]=(catCounts[p.key]||0)+1; });
+    var cIdx={}; var gi=0; var total=this.people.length;
+    this.people.forEach(function(p){
+      var rBase = inner + (p.eraIdx/4)*range;
+      var r = rBase + (p.r1-0.5)*(range/5)*0.7;
+      var ang;
+      if(p.isOther){ ang=p.r2*6.28318; }
+      else if(ordinal){ ang=(gi/total)*6.28318 + (p.r2-0.5)*0.06; gi++; }
+      else { var sw=6.28318/nc; var idx=(cIdx[p.key]=(cIdx[p.key]||0)+1)-1; var n=catCounts[p.key]||1; ang=ci[p.key]*sw + ((idx+0.5)/n)*sw; }
+      p.tx=Math.cos(ang)*r; p.ty=Math.sin(ang)*r;
+    });
+    for(var e=0;e<5;e++){ this.ringRadii.push(inner + ((4-e)/4)*range); }
+    if(!ordinal){ var sw2=6.28318/nc; named.forEach(function(c,i){ var ang=i*sw2+sw2*0.5, rr=outer+32; var cx=Math.cos(ang); self.labels.push({x:cx*rr, y:Math.sin(ang)*rr, text:self.clip(c.label,20).toUpperCase(), count:c.count, align:(cx<-0.3?'right':(cx>0.3?'left':'center'))}); }); }
     this.showYou=true;
   },
   layoutStrata:function(cats){
@@ -352,9 +337,25 @@ App.prototype = {
     cols.forEach(function(c){ self.labels.push({x:colX[c.key], y:baseY+34, text:self.clip(c.label,16).toUpperCase(), count:c.count, align:'center'}); });
     var other=cats.find(function(c){return c.key==='__other';}); if(other) this.labels.push({x:x0, y:baseY+72, text:'NOT SHOWN · '+this.fmt(other.count)+' at smaller companies', align:'left', note:true});
   },
+  buildEdges:function(layout,dim){
+    this.edges=[];
+    this.edgesOn = layout!=='strata' && !(layout==='orbit' && (dim==='seniority'||dim==='era'));
+    if(!this.edgesOn) return;
+    var groups={};
+    this.people.forEach(function(p){ if(p.isOther) return; (groups[p.key]=groups[p.key]||[]).push(p); });
+    var maxD=(layout==='orbit'?175:98), md2=maxD*maxD; var seen={};
+    for(var key in groups){
+      var arr=groups[key]; var n=arr.length; if(n<2) continue; var K=2;
+      for(var i=0;i<n;i++){ var a=arr[i]; var cand=[];
+        for(var j=0;j<n;j++){ if(i===j) continue; var dx=arr[j].tx-a.tx, dy=arr[j].ty-a.ty; var d2=dx*dx+dy*dy; if(d2<=md2) cand.push([d2,arr[j].id]); }
+        cand.sort(function(u,v){return u[0]-v[0];});
+        for(var m=0;m<K&&m<cand.length;m++){ var bid=cand[m][1]; var lo=a.id<bid?a.id:bid, hi=a.id<bid?bid:a.id; var kk=lo+'_'+hi; if(!seen[kk]){ seen[kk]=1; this.edges.push([lo,hi]); } }
+      }
+    }
+  },
   computeBounds:function(){
-    var minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9; var st=this.state.layout==='strata';
-    this.people.forEach(function(p){ if(st&&p.key==='__other') return; if(p.tx<minX)minX=p.tx; if(p.tx>maxX)maxX=p.tx; if(p.ty<minY)minY=p.ty; if(p.ty>maxY)maxY=p.ty; });
+    var minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
+    this.people.forEach(function(p){ if(p.isOther) return; if(p.tx<minX)minX=p.tx; if(p.tx>maxX)maxX=p.tx; if(p.ty<minY)minY=p.ty; if(p.ty>maxY)maxY=p.ty; });
     this.bounds={cx:(minX+maxX)/2, cy:(minY+maxY)/2, w:(maxX-minX)||1, h:(maxY-minY)||1};
   },
   fit:function(animate){ var b=this.bounds; if(!b||!this.cssW) return; var s=Math.min(this.cssW/(b.w+160), this.cssH/(b.h+200))*0.92; var scale=Math.max(0.04,s); this.fitScale=scale; this.cam.tx=b.cx; this.cam.ty=b.cy; this.cam.tscale=scale; if(this._firstFit){ this.cam.x=b.cx; this.cam.y=b.cy; this.cam.scale=scale*0.82; this._firstFit=false; } else if(!animate){ this.cam.x=b.cx; this.cam.y=b.cy; this.cam.scale=scale; } },
@@ -382,20 +383,28 @@ App.prototype = {
     this.drawScene();
   },
   drawScene:function(){
-    var c=this.ctx; if(!c||!this.cssW) return; var w=this.cssW, h=this.cssH, cam=this.cam;
+    var c=this.ctx; if(!c||!this.cssW) return; var w=this.cssW, h=this.cssH, cam=this.cam, sc=cam.scale;
     c.setTransform(this.dpr,0,0,this.dpr,0,0); c.clearRect(0,0,w,h); c.fillStyle=this.bgGrad; c.fillRect(0,0,w,h);
     var glow=(CFG.glowIntensity!=null)?CFG.glowIntensity:0.9;
     var ps=(CFG.pointSize!=null)?CFG.pointSize:1;
-    if(this.state.layout==='orbit'){ var cx0=(0-cam.x)*cam.scale+w/2, cy0=(0-cam.y)*cam.scale+h/2; c.save(); c.strokeStyle='rgba(255,255,255,0.05)'; c.lineWidth=1; this.ringRadii.forEach(function(rr){ c.beginPath(); c.arc(cx0,cy0,rr*cam.scale,0,6.28318); c.stroke(); }); c.restore(); }
-    var gBase=this.state.layout==='strata'?7:(this.state.layout==='orbit'?9:10);
     var P=this.people;
+    for(var q=0;q<P.length;q++){ var pp=P[q]; pp.sx=(pp.x-cam.x)*sc+w/2; pp.sy=(pp.y-cam.y)*sc+h/2; }
+    if(this.state.layout==='orbit'){ var cx0=(0-cam.x)*sc+w/2, cy0=(0-cam.y)*sc+h/2; c.save(); c.strokeStyle='rgba(255,255,255,0.05)'; c.lineWidth=1; this.ringRadii.forEach(function(rr){ c.beginPath(); c.arc(cx0,cy0,rr*sc,0,6.28318); c.stroke(); }); c.restore(); }
+    var hovP=(this.hoverId!=null)?P[this.hoverId]:null;
+    var selP=(this.state.selectedId!=null)?P[this.state.selectedId]:null;
+    var litKey=(hovP&&!hovP.isOther)?hovP.key:((selP&&!selP.isOther)?selP.key:null);
+    var linksOn = this.edgesOn && (this.state.showLinks!==false) && this.edges && this.edges.length;
+    if(linksOn && (this.hasFilter || litKey)){ c.globalCompositeOperation='lighter'; c.lineWidth=Math.max(0.6,0.6*sc); var anyF=this.hasFilter;
+      for(var ei=0;ei<this.edges.length;ei++){ var e=this.edges[ei]; var a=P[e[0]], b=P[e[1]]; var t=a.a<b.a?a.a:b.a; if(t<0.06) continue; if((a.sx<-60&&b.sx<-60)||(a.sx>w+60&&b.sx>w+60)||(a.sy<-60&&b.sy<-60)||(a.sy>h+60&&b.sy>h+60)) continue; var al=0; if(anyF){ if(a.big&&b.big) al=0.6*t; } else if(litKey && a.key===litKey) al=0.52*t; if(al<=0.015) continue; c.strokeStyle=this.hexA(a.hex,al); c.beginPath(); c.moveTo(a.sx,a.sy); c.lineTo(b.sx,b.sy); c.stroke(); }
+    }
+    var gBase=this.state.layout==='strata'?5:6, maxGlow=15;
     c.globalCompositeOperation='lighter';
-    for(var i=0;i<P.length;i++){ var p=P[i]; var sx=(p.x-cam.x)*cam.scale+w/2, sy=(p.y-cam.y)*cam.scale+h/2; p.sx=sx; p.sy=sy; if(sx<-90||sx>w+90||sy<-90||sy>h+90) continue; var a=p.a; if(a<0.02) continue; var gr=gBase*cam.scale*ps*p.sizeMul*(p.big?1.45:1); c.globalAlpha=a*glow*(p.big?1.15:0.82); c.drawImage(this.sprite(p.hex), sx-gr, sy-gr, gr*2, gr*2); }
+    for(var i=0;i<P.length;i++){ var p=P[i]; if(p.isOther && !p.big) continue; var sx=p.sx, sy=p.sy; if(sx<-90||sx>w+90||sy<-90||sy>h+90) continue; var a3=p.a; if(a3<0.03) continue; var gr=gBase*sc*ps*p.sizeMul*(p.big?1.5:1); if(gr>maxGlow) gr=maxGlow; else if(gr<1.5) gr=1.5; c.globalAlpha=a3*glow*(p.big?0.9:((litKey&&p.key===litKey)?0.62:0.42)); c.drawImage(this.sprite(p.hex), sx-gr, sy-gr, gr*2, gr*2); }
     c.globalCompositeOperation='source-over';
-    for(var j=0;j<P.length;j++){ var p2=P[j]; if(p2.a<0.06) continue; var sx2=p2.sx, sy2=p2.sy; if(sx2==null||sx2<-20||sx2>w+20||sy2<-20||sy2>h+20) continue; var cr=Math.max(1,Math.min(4.4,1.7*cam.scale*ps*p2.sizeMul))*(p2.big?1.3:1); c.globalAlpha=Math.min(1,p2.a*1.1); c.fillStyle=p2.core; c.beginPath(); c.arc(sx2,sy2,cr,0,6.28318); c.fill(); }
+    for(var j=0;j<P.length;j++){ var p2=P[j]; var a4=p2.a; if(a4<0.05) continue; var sx2=p2.sx, sy2=p2.sy; if(sx2<-20||sx2>w+20||sy2<-20||sy2>h+20) continue; var cr; if(p2.isOther && !p2.big){ cr=Math.max(0.7,Math.min(1.6,0.9*sc*ps)); c.globalAlpha=Math.min(0.5,a4); } else { cr=Math.max(1.1,Math.min(6,1.75*sc*ps*p2.sizeMul))*(p2.big?1.25:1); c.globalAlpha=Math.min(1,a4*1.15); } c.fillStyle=p2.core; c.beginPath(); c.arc(sx2,sy2,cr,0,6.28318); c.fill(); }
     c.globalAlpha=1;
     this.drawLabels(c,w,h);
-    if(this.hoverId!=null) this.drawRing(this.hoverId,'rgba(255,255,255,0.55)',false);
+    if(this.hoverId!=null) this.drawRing(this.hoverId,'rgba(255,255,255,0.6)',false);
     if(this.state.selectedId!=null) this.drawRing(this.state.selectedId,'#8ab4ff',true);
   },
   drawLabels:function(c,w,h){ var cam=this.cam; c.save(); c.textBaseline='middle';
@@ -516,8 +525,15 @@ App.prototype = {
   reconStyle:function(on){ var b="margin-top:14px; width:100%; font-family:'Hanken Grotesk',sans-serif; font-size:13px; padding:10px; border-radius:11px; cursor:pointer; transition:all .15s; border:1px solid "; return b+(on?"rgba(245,199,126,0.6); background:rgba(245,199,126,0.15); color:#f7dca6;":"rgba(255,255,255,0.12); background:transparent; color:#aab2cc;"); },
 
   // ---------------- render (vanilla) ----------------
+  viewCaption:function(layout,dim){
+    var w={company:'company',role:'role',seniority:'seniority',era:'era'}[dim]||'attribute';
+    if(layout==='field'){ var s='Each glowing cluster is a '+w+' — hover or filter one to light up its constellation'; if(dim==='company') s+=' · faint dust = your long tail of smaller companies'; return s; }
+    if(layout==='orbit'){ var base='Distance from you = how long you’ve known them — longest-known orbit closest, newest on the outer rings'; return (dim==='company'||dim==='role')? base+' · wedges group by '+w : base+' · color = '+w; }
+    return 'Each column is a '+w+' — taller means more people you know there';
+  },
+
   render:function(){
-    var self=this, S=this.state, F=S.facets||{};
+    var self=this, S=this.state;
     // stats
     setText('stat-people', this.fmt(this._stats.people));
     setText('stat-companies', this.fmt(this._stats.companies));
@@ -525,40 +541,18 @@ App.prototype = {
     // clear button
     var clr=document.getElementById('obs-clear'); if(clr) clr.style.display=this.hasFilter?'':'none';
 
-    // layout + dim controls
-    var layoutOpts=[['field','Field'],['orbit','Orbit'],['strata','Strata']];
-    document.getElementById('r-layout').innerHTML = layoutOpts.map(function(o){ return '<button data-act="setLayout" data-arg="'+o[0]+'" style="'+self.segStyle(S.layout===o[0])+'">'+o[1]+'</button>'; }).join('');
+    var dimNames={company:'company',role:'role & function',seniority:'seniority',era:'era connected'};
+
+    // controls: caption + VIEW + COLOR
+    setText('r-viewcap', this.viewCaption(S.layout,S.dim));
+    var layoutOpts=[['field','Groups','Clusters of people who share an attribute'],['orbit','Timeline','You at center · rings = when you connected'],['strata','Ranked','Columns ranked by how many people you know']];
+    document.getElementById('r-layout').innerHTML = layoutOpts.map(function(o){ return '<button data-act="setLayout" data-arg="'+o[0]+'" title="'+esc(o[2])+'" style="'+self.segStyle(S.layout===o[0])+'">'+o[1]+'</button>'; }).join('');
     var dimOpts=[['company','Company'],['role','Role'],['seniority','Seniority'],['era','Era']];
     document.getElementById('r-dim').innerHTML = dimOpts.map(function(o){ return '<button data-act="setDim" data-arg="'+o[0]+'" style="'+self.segStyle(S.dim===o[0])+'">'+o[1]+'</button>'; }).join('');
-
-    // facet row
-    var fmap=[['company','Company'],['role','Role'],['sen','Seniority'],['era','Connected']];
-    document.getElementById('r-facetrow').innerHTML = fmap.map(function(pair){
-      var dim=pair[0], name=pair[1]; var key=F[dim];
-      var opt=key?(self.facetOptions[dim]||[]).find(function(o){return o.key===key;}):null; var active=!!opt;
-      var label=(active?self.shortLabel(opt.label):name)+' ▾';
-      return '<button data-act="toggleFacetMenu" data-arg="'+dim+'" style="'+self.facetBtnStyle(S.openFacet===dim,active)+'">'+esc(label)+'</button>';
-    }).join('');
-
-    // facet menu
-    var fm=document.getElementById('r-facetmenu');
-    if(S.openFacet){
-      var dim=S.openFacet; var opts=this.facetOptions[dim]||[]; var cur=F[dim];
-      var titleMap={company:'Company',role:'Role & function (inferred)',sen:'Seniority (inferred from title)',era:'When you connected'};
-      var html='<div style="width:100%; background:rgba(11,15,28,0.94); border:1px solid rgba(138,180,255,0.28); border-radius:12px; padding:12px 13px; backdrop-filter:blur(14px); box-shadow:0 16px 46px rgba(0,0,0,0.55); animation:obsRise .2s ease both;">';
-      html+='<div style="font-family:\'IBM Plex Mono\',monospace; font-size:10px; letter-spacing:0.13em; color:#8ab4ff; margin-bottom:9px;">'+esc(titleMap[dim]||'')+'</div>';
-      html+='<div style="display:flex; flex-wrap:wrap; gap:7px;">';
-      html+='<button data-act="clearFacetDim" data-arg="'+dim+'" style="'+this.optChipStyle(!cur)+'">Any</button>';
-      html+=opts.map(function(o){ return '<button data-act="setFacet" data-arg="'+dim+'" data-arg2="'+esc(o.key)+'" style="'+self.optChipStyle(cur===o.key)+'">'+esc(o.label)+'</button>'; }).join('');
-      html+='</div></div>'; fm.innerHTML=html;
-    } else fm.innerHTML='';
 
     // answer pill
     var ans=document.getElementById('r-answer');
     ans.innerHTML = this.answerText ? '<div style="font-family:\'IBM Plex Mono\',monospace; font-size:12.5px; color:#dbe1f4; background:rgba(20,27,48,0.78); border:1px solid rgba(138,180,255,0.3); padding:7px 15px; border-radius:22px; animation:obsRise .3s ease both; text-align:center;">'+esc(this.answerText)+'</div>' : '';
-
-    // chips
-    document.getElementById('r-chips').innerHTML = this.CHIPS.map(function(c){ return '<button data-act="chip" data-arg="'+c.id+'" style="'+self.chipStyle(self.chipActive(c))+'">'+esc(c.label)+'</button>'; }).join('');
 
     // legend vs list
     var legendEl=document.getElementById('r-legend'), listEl=document.getElementById('r-list');
@@ -578,15 +572,23 @@ App.prototype = {
       if(this.matchOverflow) lh+='<div style="text-align:center; font-family:\'IBM Plex Mono\',monospace; font-size:11px; color:#7f88a6; padding:10px;">'+esc(this.matchOverflow)+'</div>';
       lh+='</div>'; listEl.innerHTML=lh;
     } else {
-      listEl.style.display='none'; legendEl.style.display='';
-      var dimLabels={company:'company',role:'role & function',seniority:'seniority',era:'era connected'};
-      var lg='<div style="font-family:\'IBM Plex Mono\',monospace; font-size:10px; letter-spacing:0.15em; color:#7f88a6; margin-bottom:9px;">COLORED BY '+esc((dimLabels[S.dim]||'').toUpperCase())+'</div>';
+      listEl.style.display='none'; legendEl.style.display='flex';
+      var dl=dimNames[S.dim]||'';
+      var lg='<div style="font-family:\'IBM Plex Mono\',monospace; font-size:10px; letter-spacing:0.15em; color:#7f88a6; margin-bottom:9px; flex:none;">COLORED BY '+esc(dl.toUpperCase())+'</div>';
+      lg+='<div style="flex:1; min-height:0; overflow:auto; margin:0 -4px; padding:0 4px;">';
       lg+=this.legendArr.map(function(l){
         return '<div style="display:flex; align-items:center; gap:9px; padding:2.5px 0; font-size:12.5px; color:#c6cde3;">'
           +'<span style="width:9px;height:9px;border-radius:50%;flex:none;background:'+l.color+';box-shadow:0 0 8px 1px '+l.glow+';"></span>'
           +'<span style="flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">'+esc(l.label)+'</span>'
           +'<span style="font-family:\'IBM Plex Mono\',monospace; color:#7f88a6; font-size:11px;">'+esc(l.count)+'</span></div>';
       }).join('');
+      lg+='</div>';
+      lg+='<div style="flex:none; margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.09);">';
+      lg+='<div style="font-family:\'IBM Plex Mono\',monospace; font-size:9.5px; letter-spacing:0.14em; color:#7f88a6; margin-bottom:8px;">READING THE STARS</div>';
+      lg+='<div style="display:flex; align-items:center; gap:9px; margin-bottom:6px;"><span style="display:flex; align-items:center; gap:5px; flex:none; width:52px; justify-content:center;"><span style="width:4px;height:4px;border-radius:50%;background:#cfd6ec;"></span><span style="width:7px;height:7px;border-radius:50%;background:#cfd6ec;"></span><span style="width:10px;height:10px;border-radius:50%;background:#cfd6ec;"></span></span><span style="font-size:11.5px; color:#aab2cc;">size · junior → senior</span></div>';
+      lg+='<div style="display:flex; align-items:center; gap:9px; margin-bottom:6px;"><span style="display:flex; align-items:center; gap:6px; flex:none; width:52px; justify-content:center;"><span style="width:8px;height:8px;border-radius:50%;background:rgba(207,214,236,0.26);"></span><span style="width:8px;height:8px;border-radius:50%;background:#cfd6ec;box-shadow:0 0 7px 1px rgba(207,214,236,0.85);"></span></span><span style="font-size:11.5px; color:#aab2cc;">brightness · older → recent</span></div>';
+      lg+='<div style="display:flex; align-items:center; gap:9px;"><span style="display:flex; align-items:center; flex:none; width:52px; justify-content:center;"><svg width="46" height="10" viewBox="0 0 46 10"><line x1="6" y1="5" x2="40" y2="5" stroke="rgba(138,180,255,0.55)" stroke-width="1.2"/><circle cx="6" cy="5" r="2.6" fill="#cfd6ec"/><circle cx="40" cy="5" r="2.6" fill="#cfd6ec"/></svg></span><span style="font-size:11.5px; color:#aab2cc;">line · same '+esc(dl)+'</span></div>';
+      lg+='</div>';
       legendEl.innerHTML=lg;
     }
   },
@@ -655,7 +657,8 @@ App.prototype = {
         +'<div style="margin-top:7px; font-family:\'IBM Plex Mono\',monospace; font-size:9.5px; letter-spacing:0.08em; color:#7f88a6;">SHOW ME →</div></button>';
     }).join('');
     h+='</div>';
-    h+='<div style="margin-top:17px; display:flex; align-items:center; justify-content:space-between; gap:12px;"><div style="font-size:11px; color:rgba(150,159,190,0.6); line-height:1.5; flex:1;">Read from the fields in your export. Seniority is inferred from job titles.</div>';
+    h+='<div style="margin-top:15px; text-align:center; font-family:\'IBM Plex Mono\',monospace; font-size:11px; letter-spacing:0.06em; color:#9aa3c0;">HOW TO READ THE MAP — <span style="color:#dbe1f4;">big</span> = senior · <span style="color:#dbe1f4;">bright</span> = recent · <span style="color:#dbe1f4;">near</span> = alike</div>';
+    h+='<div style="margin-top:14px; display:flex; align-items:center; justify-content:space-between; gap:12px;"><div style="font-size:11px; color:rgba(150,159,190,0.6); line-height:1.5; flex:1;">Read from the fields in your export — seniority is inferred from job titles. Lines link people who share an attribute, never who-knows-whom; the real person-to-person web arrives when email &amp; calendar join this memory.</div>';
     h+='<button data-act="closeReading" style="flex:none; background:#8ab4ff; color:#0a0e18; border:none; font-weight:600; font-size:14px; font-family:inherit; padding:11px 20px; border-radius:11px; cursor:pointer;">Explore the map →</button></div>';
     h+='</div></div>';
     el.innerHTML=h;

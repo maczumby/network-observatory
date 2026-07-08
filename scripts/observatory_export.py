@@ -158,10 +158,11 @@ def build_summary(people, payload):
     if bits:
         lines.append("Worth a look: " + "; ".join(bits) + ".")
     lines.append(
-        "Explore it three ways — Field (clusters), Orbit (you at the center, "
-        "time as distance), and Strata (ranked columns). Color by company, role, "
-        "seniority, or era. Search anyone, filter and combine, and click a star "
-        "for details, a private note, or to flag a reconnect.")
+        "Explore it three ways — Groups (clusters that share an attribute, with "
+        "constellation lines when you hover one), Timeline (you at the center, time "
+        "as distance), and Ranked (columns by how many people you know). Color by "
+        "company, role, seniority, or era. Search anyone, and click a star for "
+        "details, a private note, or to flag a reconnect.")
     return "\n".join(lines)
 
 
