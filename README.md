@@ -15,8 +15,17 @@ one message with your LinkedIn export attached or dropped in:
 
 > Here's my LinkedIn export. Set this up and show me my network.
 
-The agent reads `CLAUDE.md`, imports your data, builds the visual, and opens it.
-You don't need to run anything yourself.
+The agent reads `CLAUDE.md` and walks you through it in order, one step at a time,
+checking in with you before moving on:
+
+1. **Build your map** from your export.
+2. **Get you a link** to open it (a file on your own machine, or a public link if
+   you're on a hosted agent like Agent37).
+3. **Offer a password**, since that link is public by default.
+4. **Optionally let people ask your agent about your network** in shared channels.
+
+You don't run anything yourself. Each step waits for you, so you're never more
+than one "yes" ahead of what's happening.
 
 ## Or run it yourself
 
@@ -34,10 +43,12 @@ Step 1 creates `data/linkedin.db`. Step 2 creates `dashboard/observatory.html`, 
 single file you can open any time or send to yourself.
 
 **Running through a hosted agent** (like Agent37/Hermes) instead of on your own
-machine? The agent can't open a browser on your screen, so skip `--open`. Have it
-build `observatory.html` and send you that one file to open locally — it's
-fully self-contained. The export step prints a short summary the agent can share
-with you too.
+machine? The agent can't open a browser on your screen, so instead of `--open` it
+serves the map (`scripts/serve.py`) and exposes it on a public link it verifies
+works before sending — you get a clickable "Open Network Observatory" link, not a
+file to wrangle. That link is public until you add a password (the agent offers
+one). If you'd rather not expose a link at all, it can still just hand you the
+self-contained `observatory.html` file to open locally.
 
 ## Getting your LinkedIn export
 
