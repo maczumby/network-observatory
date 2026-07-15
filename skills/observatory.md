@@ -35,6 +35,29 @@ Output: `dashboard/observatory.html` (one file, ~400 KB, works fully offline).
 - **"Read my network"** opens a plain-language reading: how many people, over how
   many years, your center of gravity, and reconnect candidates.
 
+## Share it (on a hosted agent)
+
+The build is a standalone file, but on a hosted agent (Agent37/Hermes) the user
+can't just double-click it, so hand them a link instead. In order:
+
+1. **Serve it.** `python3 scripts/serve.py` serves `dashboard/` on port **8766**
+   (run it in the background).
+2. **Expose the port** with agent37's in-VM host helper (`agent37-host_add 8766`
+   on current builds), which returns a public URL like
+   `https://exposed-port-8766-<hash>.h48.openclaw.agent37.com/observatory.html`.
+   That exact command isn't in agent37's published docs, so if it's missing or
+   renamed, check `agent37-host_add --help` or
+   [agent37's docs](https://agent37.com/docs/agents-api/public-ports).
+3. **Verify** it returns `200` (`curl -sS -o /dev/null -w "%{http_code}\n" "<url>/observatory.html"`)
+   before sending anything.
+4. **Send a hyperlink,** `[Open Network Observatory](<url>/observatory.html)`, not
+   the raw URL.
+5. **Offer a password** — the link is public until you add one:
+   `python3 scripts/serve.py --password "<user>:<pass>"`.
+6. **Optionally** set up community querying with `network-answers.md`.
+
+The full gated sequence, with checkpoints, is in `CLAUDE.md`.
+
 ## Data honesty
 Everything shown comes straight from your export. Function and seniority are
 *inferred from job titles* and labeled that way throughout. Long names, titles,

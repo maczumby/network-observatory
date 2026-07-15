@@ -8,51 +8,95 @@ If you are an AI agent working in this repo, this file tells you what to do.
 
 ---
 
-## When the user gives you a LinkedIn export
+## The runbook: LinkedIn export → map → shared link → community querying
 
-They will hand you a LinkedIn "Basic" export — a `.zip`, an unzipped folder, or a
-`Connections.csv` — often with a message like "set this up" or "show me my
-network." Run the whole pipeline for them. Don't make them run commands one at a
-time unless they ask to.
+The user will hand you a LinkedIn "Basic" export — a `.zip`, an unzipped folder,
+or a `Connections.csv` — often with "set this up" or "show me my network."
+
+**Do these steps in order, one at a time. At each ✋ checkpoint, stop and wait for
+the user before continuing. Don't run ahead or batch steps.** Later steps are
+optional and build on the earlier ones, so the map always comes first.
+
+### Step 1 — Build the map
 
 1. **Find the export.** If they attached or named a file, use that path. Otherwise
-   the export is probably in `exports/`, the repo root, or their Downloads — the
-   import script searches all of those on its own. If you can move the file, put
-   it in `exports/` first. You do **not** need to unzip it — the importer reads a
-   `.zip` directly. On a hosted/chat agent, the user's uploaded file lands in your
-   workspace; use it wherever the platform saved it.
+   it's probably in `exports/`, the repo root, or their Downloads — the import
+   script searches all of those. If you can move it, put it in `exports/` first.
+   You do **not** need to unzip it. On a hosted/chat agent, the uploaded file lands
+   in your workspace; use it wherever the platform saved it.
+2. **Import it.** `python3 scripts/linkedin_import.py` (or pass the path). This
+   writes `data/linkedin.db` and prints a summary.
+3. **Build it.** `python3 scripts/observatory_export.py` writes the self-contained
+   `dashboard/observatory.html`.
 
-2. **Import it.**
-   ```bash
-   python3 scripts/linkedin_import.py            # auto-finds the export
-   # or: python3 scripts/linkedin_import.py <path>
-   ```
-   This writes `data/linkedin.db` and prints a summary (count, date span, top
-   companies, function mix). Read the summary back to the user in plain language.
+✋ **Checkpoint:** confirm the map built, and read the printed summary back to the
+user in plain language (count, span, top companies). Remind them function and
+seniority are *inferred from job titles*, not stated facts.
 
-3. **Build and show the map.**
-   ```bash
-   python3 scripts/observatory_export.py
-   ```
-   This writes the self-contained `dashboard/observatory.html` and prints a short,
-   plain-language summary you can share.
-   - **On the user's own computer:** add `--open` to open it in their browser.
-   - **On a hosted / cloud agent** (the user is in a chat and you can't reach their
-     screen — e.g. Agent37/Hermes): do **not** try to open a browser, and do **not**
-     hand over an internal IP or a `localhost`/preview URL. Those are unreachable or
-     auth-gated, and you cannot mint a working link (signing needs the account's
-     secret key, which the agent doesn't have). Instead, **send the
-     `dashboard/observatory.html` file to the user in the chat** (or tell them to
-     open it from the platform's Files browser). It's fully self-contained, so they
-     just open it — nothing to install or unzip. Then **paste the summary** the
-     exporter printed.
+### Step 2 — Publish it (get them a link)
 
-4. **What they can explore** is covered by that summary: three views (Groups /
-   Timeline / Ranked), color by company / role / seniority / era, search, and
-   clicking a star for details, a private note, or a reconnect flag. Remind them
-   that function and seniority are *inferred from job titles*, not stated facts.
+- **On the user's own computer:** re-run with `--open`
+  (`python3 scripts/observatory_export.py --open`) to open it in their browser.
+  You're done — skip to step 4 if they want it.
+- **On a hosted / cloud agent (Agent37 / Hermes),** the map needs a public link:
 
-When they later say "show me my map," just rebuild (step 3) and send the fresh file.
+  a. **Serve it.** `python3 scripts/serve.py` serves `dashboard/` on port **8766**.
+     Run it in the background so it keeps serving after this step.
+
+  b. **Expose the port.** Give port 8766 a public URL using agent37's in-VM host
+     helper. On current builds that's:
+     ```bash
+     agent37-host_add 8766
+     ```
+     It returns a public URL shaped like
+     `https://exposed-port-8766-<hash>.h48.openclaw.agent37.com/observatory.html`.
+     The `<hash>` is unique to *this* instance and minted by the command, so use
+     the exact URL it returns — never copy an example or someone else's link.
+     Agent37's tooling changes and this exact command isn't in their published
+     docs, so if it's missing or named differently, check
+     `agent37-host_add --help` or agent37's docs
+     (https://agent37.com/docs/agents-api/public-ports) for the current way to
+     expose a port. Whatever you use, the verify step next is what proves you got
+     a real, working link — don't skip it.
+
+  c. **Verify before you send.** Never hand over a link you haven't confirmed loads:
+     ```bash
+     curl -sS -o /dev/null -w "%{http_code}\n" "<url>/observatory.html"
+     ```
+     Require `200`. If it's not 200, fix the path or re-expose and try again.
+
+  d. **Send it as a hyperlink, never the raw URL.** Post a Markdown link:
+     `[Open Network Observatory](<url>/observatory.html)`.
+
+  ✋ **Checkpoint:** confirm they can open it. Note plainly that right now the link
+  is public — anyone who has it can see the map. That sets up step 3.
+
+### Step 3 — Offer a password (optional)
+
+Ask if they want to lock the link. If **yes**, restart the server with a password
+and re-verify:
+```bash
+python3 scripts/serve.py --password "<user>:<pass>"
+curl -sS -o /dev/null -w "%{http_code}\n" -u "<user>:<pass>" "<url>/observatory.html"   # expect 200; without -u, 401
+```
+Give them the username and password **privately** (backchannel or DM), never in a
+shared channel.
+
+✋ **Checkpoint:** act on their yes/no before moving on. If no, leave it open but
+make sure they heard that it's public.
+
+### Step 4 — Let other people query the network (optional)
+
+Ask if they'd like people in their channels to be able to ask *their agent* about
+their network ("does she know anyone in AI enablement?"). If **yes**, hand them
+`skills/network-answers.md` and walk them through pasting it into their agent's
+backchannel. It answers high-level questions and suggests profiles with links,
+and routes anything sensitive back to them first.
+
+✋ **Checkpoint:** done when they've pasted it and their agent has read it back.
+
+When they later say "show me my map," rebuild (step 1) — the served link stays the
+same, so you don't need to re-expose or re-send it.
 
 ---
 
@@ -117,8 +161,16 @@ pull-on-request.
 The export, the database, and the generated HTML all contain personal contact
 data. `.gitignore` already excludes `exports/*`, `data/*.db`, and
 `dashboard/*.html`. Never commit those, never paste connection records into a
-message to anyone but the user, and never send them to an external service. The
-whole tool is designed to run locally for this reason.
+message to anyone but the user, and never send them to an external service.
+
+**Publishing the map (step 2) is the one deliberate exception, and it's opt-in
+per share.** When you expose the map on a public port, anyone with that link can
+see it, so *tell the user that plainly* when you send it, and offer the password
+(step 3) as the real lock. Exposing the built HTML is the only thing that leaves
+the machine — the raw export, the database, and connection records still never
+get committed, pasted to anyone but the user, or sent to a third-party service.
+Step 4 is narrower still: the agent surfaces public profile links in reply to a
+question, never the underlying database.
 
 ---
 
