@@ -56,6 +56,37 @@ for making your own).
   feed `trellis capture` interactions, so radar and loops can reason over
   real email recency. Do that only when the user asks for it.
 
+## On hosted agents (Hermes): don't run this script, ingest instead
+
+`email_recency.py` is for agents on the user's own computer. If you are a
+hosted agent (Hermes, Agent37), do not set up OAuth here and do not ask the
+user for a client JSON. You already have your own connected tools; token
+custody stays with your platform's connector (for Gmail on Hermes that is
+usually Composio), and this repo requests no Google scopes at all.
+
+The flow on a hosted agent:
+
+1. Fetch recent messages with your own Gmail tool. You only need sender,
+   recipients, and date. Ignore bodies; they are none of this repo's
+   business even when your connector can see them.
+2. Normalize each message into a Trellis event and hand it over:
+
+```bash
+python3 scripts/trellis.py ingest --json '[
+  {"person": {"name": "Sam Rivera", "email": "sam@example.com"},
+   "kind": "email",
+   "date": "2026-07-22",
+   "summary": "email received",
+   "source": "gmail",
+   "source_ref": "<gmail message id>"}
+]'
+```
+
+`source_ref` makes ingest idempotent, so re-running over the same messages
+is safe: already-seen events are skipped. After ingest, `trellis.py recall`,
+`loops`, and `radar` answer recency questions from the same data the local
+script would have produced. Store who and when, not what was said.
+
 ## Design credit
 
 The metadata-only approach follows Maria's email-recency skill

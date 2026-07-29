@@ -149,6 +149,11 @@ check, the substring-match caveat (always name `matched_address` in your answer)
 and when subjects may be pulled. First run needs an OAuth client JSON at
 `data/gmail_oauth_client.json` and opens a one-click browser consent.
 
+**Hosted agents (Hermes/Agent37): skip the script entirely.** Fetch headers with
+your own connected Gmail tool and feed `trellis.py ingest` instead — the how is in
+`skills/email-recency.md` under "On hosted agents". This repo never requests
+Google scopes on a server.
+
 ## Updating the tool
 
 When the user says "update the network-observatory tool" (or asks for the latest):
