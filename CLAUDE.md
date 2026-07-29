@@ -131,6 +131,24 @@ the chat. Read that block, then save each person — call `trellis.py capture` p
 Keep the trust contract: cite sources, show the reason, never invent, confirm
 duplicates (`trellis.py dupes` / `merge`), never auto-send.
 
+## Email recency — the Gmail sweep (fourth capability)
+
+`scripts/email_recency.py` answers "when did I last exchange email with X" straight
+from Gmail headers — see `skills/email-recency.md` for the full contract. It is the
+one component here that holds a token, deliberately the weakest one Gmail issues
+(`gmail.metadata`): Google's servers refuse it message bodies outright. Run it for
+"when did I last talk to / who's gone cold / triage my leads" questions:
+
+```bash
+python3 scripts/email_recency.py "sam@example.com" --json
+python3 scripts/email_recency.py --from-db --json   # LinkedIn connections with emails
+```
+
+Read `skills/email-recency.md` before first use — it covers the sweep-completeness
+check, the substring-match caveat (always name `matched_address` in your answer),
+and when subjects may be pulled. First run needs an OAuth client JSON at
+`data/gmail_oauth_client.json` and opens a one-click browser consent.
+
 ## Updating the tool
 
 When the user says "update the network-observatory tool" (or asks for the latest):
