@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "network-observatory-connect",
+  "workers_dev": true,
+  "preview_urls": false,
+  "main": "./dist/server/index.js",
+  "compatibility_date": "2026-05-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "COMPOSIO_GMAIL_AUTH_CONFIG_ID": "ac_OsnNT3NHbX_b"
+  },
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "network-observatory-connect",
+      "database_id": "8e1bf0e4-3f12-43f3-9c46-f0c7512e8d3a",
+      "migrations_dir": "./drizzle"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

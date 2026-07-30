@@ -49,8 +49,9 @@ creates a separate Composio user and a private, revocable MCP endpoint for their
 Hermes. Your Composio API key and Google client secret remain on the hosted
 service and are never given to the tester or committed to GitHub.
 
-Tester onboarding uses the public Connect URL supplied by the Network
-Observatory operator together with a one-time invite code.
+Tester onboarding uses
+[Network Observatory Connect](https://network-observatory-connect.mari-network-observatory.workers.dev)
+together with a one-time invite code supplied privately by the operator.
 
 Gmail is still optional. The hosted endpoint can return only sender, recipients,
 date, labels, and stable message IDs. It cannot return subjects, snippets,

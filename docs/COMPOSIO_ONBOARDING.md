@@ -55,7 +55,7 @@ export NETWORK_OBSERVATORY_INVITE_ADMIN_TOKEN="$(
   security find-generic-password \
     -s network-observatory-invite-admin -w
 )"
-export NETWORK_OBSERVATORY_CONNECT_URL='https://YOUR-PUBLIC-CONNECT-HOST'
+export NETWORK_OBSERVATORY_CONNECT_URL='https://network-observatory-connect.mari-network-observatory.workers.dev'
 python3 onboarding/scripts/create_invite.py \
   --url "$NETWORK_OBSERVATORY_CONNECT_URL" \
   --label 'Tester name' \

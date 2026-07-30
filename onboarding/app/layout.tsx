@@ -9,7 +9,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   metadataBase: new URL(
-    "https://network-observatory-connect.filament-1220.chatgpt.site",
+    "https://network-observatory-connect.mari-network-observatory.workers.dev",
   ),
   title: "Connect Gmail | Network Observatory",
   description:
