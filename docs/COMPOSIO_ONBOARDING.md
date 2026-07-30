@@ -46,12 +46,18 @@ fresh `reconnectUrl`; the tester completes that link and retries.
 
 ## Invite a tester
 
-Keep the operator token in the shell, not command history:
+On the operator Mac, the production token is stored in Keychain as
+`network-observatory-invite-admin`. Load it into the current shell without
+placing the value in command history:
 
 ```bash
-export NETWORK_OBSERVATORY_INVITE_ADMIN_TOKEN='...'
+export NETWORK_OBSERVATORY_INVITE_ADMIN_TOKEN="$(
+  security find-generic-password \
+    -s network-observatory-invite-admin -w
+)"
+export NETWORK_OBSERVATORY_CONNECT_URL='https://YOUR-PUBLIC-CONNECT-HOST'
 python3 onboarding/scripts/create_invite.py \
-  --url 'https://network-observatory-connect.openai.site' \
+  --url "$NETWORK_OBSERVATORY_CONNECT_URL" \
   --label 'Tester name' \
   --email 'their-google-address@example.com'
 ```
@@ -75,10 +81,10 @@ never post it in a shared channel.
 
 ```bash
 python3 onboarding/scripts/manage_access.py \
-  --url 'https://network-observatory-connect.openai.site' list
+  --url "$NETWORK_OBSERVATORY_CONNECT_URL" list
 
 python3 onboarding/scripts/manage_access.py \
-  --url 'https://network-observatory-connect.openai.site' revoke 'trs_SESSION_ID'
+  --url "$NETWORK_OBSERVATORY_CONNECT_URL" revoke 'trs_SESSION_ID'
 ```
 
 Revocation disables the hashed Observatory MCP token and deletes the associated

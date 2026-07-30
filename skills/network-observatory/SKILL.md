@@ -34,9 +34,8 @@ Stop here successfully when the user does not want enrichment.
 Do not ask for a Google client secret, Composio API key, token, or project
 credential. Those belong to the hosted onboarding service.
 
-1. Send the user to
-   `https://network-observatory-connect.openai.site` and ask them to use their
-   one-time invite.
+1. Send the user to the public Connect URL supplied by the Network Observatory
+   operator and ask them to use their one-time invite.
 2. Wait while the user authorizes their own Google account.
 3. Have them run the private `hermes mcp add` command shown by the page.
 4. Run:

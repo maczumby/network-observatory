@@ -8,7 +8,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://network-observatory-connect.openai.site"),
+  metadataBase: new URL(
+    "https://network-observatory-connect.filament-1220.chatgpt.site",
+  ),
   title: "Connect Gmail | Network Observatory",
   description:
     "Create a private Gmail metadata connection for your Network Observatory and Hermes agent.",
