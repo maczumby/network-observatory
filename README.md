@@ -9,6 +9,20 @@ The idea: your network is a kind of memory, and right now it's locked in a CSV.
 This gives your AI agent a database it can reason over, and gives you a way to
 actually see who you know.
 
+## Give this to your agent as one link
+
+Send your agent this URL and it can set everything up from scratch:
+
+```
+https://raw.githubusercontent.com/maczumby/network-observatory/main/skills/network-observatory/SKILL.md
+```
+
+The LinkedIn map needs nothing from anyone: your export in, your map out, all
+on your machine. The optional Gmail piece uses a metadata-only connection
+(sender, recipients, date; Google's servers refuse this connection message
+bodies) and currently needs a one-time invite from the operator while Google
+verification is pending.
+
 ## The fastest way to use it
 
 Give this whole folder to your coding agent (Claude Code or similar), then send

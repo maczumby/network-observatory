@@ -34,6 +34,12 @@ Stop here successfully when the user does not want enrichment.
 Do not ask for a Google client secret, Composio API key, token, or project
 credential. Those belong to the hosted onboarding service.
 
+Beta limits, tell the user up front: the Google app behind this is in Testing,
+so the operator must add the user's exact Google address as a test user before
+the invite works, access needs a one-click reconnect every 7 days, and there
+are at most 100 seats. If the user just wants the map, skip this section
+entirely; LinkedIn needs no invite and no operator.
+
 1. Send the user to
    `https://network-observatory-connect.mari-network-observatory.workers.dev`
    and ask them to use their one-time invite.
