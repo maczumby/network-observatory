@@ -60,15 +60,15 @@ for making your own).
 
 `email_recency.py` is for agents on the user's own computer. If you are a
 hosted agent (Hermes, Agent37), do not set up OAuth here and do not ask the
-user for a client JSON. You already have your own connected tools; token
-custody stays with your platform's connector (for Gmail on Hermes that is
-usually Composio), and this repo requests no Google scopes at all.
+user for a client JSON, Google secret, or Composio key. Use the tester's private
+Network Observatory MCP endpoint. It keeps connector credentials on the hosted
+service and exposes only two metadata tools.
 
 The flow on a hosted agent:
 
-1. Fetch recent messages with your own Gmail tool. You only need sender,
-   recipients, and date. Ignore bodies; they are none of this repo's
-   business even when your connector can see them.
+1. Call `network_observatory_sweep_email_metadata`, 25 messages at a time.
+   Follow `nextPageToken` only as far as the user's question needs. Gmail's
+   metadata scope does not allow `q`, so match identities locally.
 2. Normalize each message into a Trellis event and hand it over:
 
 ```bash
@@ -82,10 +82,16 @@ python3 scripts/trellis.py ingest --json '[
 ]'
 ```
 
-`source_ref` makes ingest idempotent, so re-running over the same messages
+Use `<gmail-message-id>:<correspondent-email>` as `source_ref` when a message
+contains multiple external participants. That makes ingest idempotent, so re-running over the same messages
 is safe: already-seen events are skipped. After ingest, `trellis.py recall`,
 `loops`, and `radar` answer recency questions from the same data the local
 script would have produced. Store who and when, not what was said.
+
+The hosted tools cannot return subject, snippet, body, or attachments. If a
+call returns `reconnectUrl`, send it privately to the user, wait for them to
+finish, then retry. While the Google OAuth app remains in Testing, this may be
+needed again after seven days.
 
 ## Design credit
 

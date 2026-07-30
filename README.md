@@ -1,8 +1,9 @@
 # Network Observatory
 
-Turn your LinkedIn export into a private map of your professional network — a
+Turn your LinkedIn export into a private map of your professional network, a
 star field of every person you're connected to, that you can pan, search, and
-filter. It runs entirely on your own machine. Nothing is uploaded.
+filter. The LinkedIn map runs entirely on your own machine. Optional Gmail
+enrichment uses a separate metadata-only connection that you explicitly approve.
 
 The idea: your network is a kind of memory, and right now it's locked in a CSV.
 This gives your AI agent a database it can reason over, and gives you a way to
@@ -26,6 +27,35 @@ checking in with you before moving on:
 
 You don't run anything yourself. Each step waits for you, so you're never more
 than one "yes" ahead of what's happening.
+
+## Give the public repo to Hermes
+
+Send your agent this link:
+
+<https://github.com/maczumby/network-observatory>
+
+Hermes can clone it, read `CLAUDE.md`, and build the LinkedIn map without any
+Google or Composio account. To install the reusable Hermes skill directly:
+
+```bash
+hermes skills install \
+  https://raw.githubusercontent.com/maczumby/network-observatory/main/skills/network-observatory/SKILL.md \
+  --yes
+```
+
+The public repo does not contain baked-in authentication. That is intentional:
+every person authorizes their own Gmail account. A one-time Connect invite
+creates a separate Composio user and a private, revocable MCP endpoint for their
+Hermes. Your Composio API key and Google client secret remain on the hosted
+service and are never given to the tester or committed to GitHub.
+
+Tester onboarding: <https://network-observatory-connect.openai.site>
+
+Gmail is still optional. The hosted endpoint can return only sender, recipients,
+date, labels, and stable message IDs. It cannot return subjects, snippets,
+bodies, or attachments. Google may require test users to reconnect after seven
+days while the OAuth app remains in Testing. Operator setup and revocation are
+documented in `docs/COMPOSIO_ONBOARDING.md`.
 
 ## Or run it yourself
 
@@ -106,8 +136,11 @@ python3 scripts/trellis.py radar             # a few reach-outs worth making, wi
 ```
 
 It works from your LinkedIn graph and what you tell it, and gets richer if your agent
-feeds it meetings, email, or calendar — no accounts or tokens, all local. When you flag
+feeds it meetings, email, or calendar. Trellis stores no connector tokens and keeps its
+memory local. When you flag
 or note people in the map, the "Sync to your agent" button hands them back to Trellis.
+Identity duplicates are never merged automatically. Confirmed merges are journaled and
+can be undone with `trellis.py unmerge`, including their history and relationship metadata.
 See `skills/trellis.md`.
 
 ## A note on what's inferred
@@ -127,6 +160,12 @@ is fully self-contained — fonts and everything else are embedded, so it makes 
 network calls at all and works with the internet off. Your data never leaves your
 machine.
 
+Optional hosted Gmail enrichment is a separate, explicit boundary. Google OAuth
+tokens stay in Composio. The Connect service stores hashed access tokens and
+pseudonymous identifiers, then passes only allowlisted message metadata to the
+user's agent. It never receives the LinkedIn export or Trellis database. See
+`docs/THREAT_MODEL.md`.
+
 ## Keeping it current
 
 The tool improves over time. To get the latest, just tell your agent **"update the
@@ -141,6 +180,15 @@ you a new zip instead of a link).
 
 - Python 3.8 or newer (standard library only — nothing to `pip install`)
 - A web browser to view the map
+
+## License
+
+The code is released under the MIT License. That gives people and their agents
+clear permission to use, copy, modify, and redistribute the project, including
+commercially, as long as they keep the copyright and license notice. It also
+states that the software is provided without warranty. The license grants code
+rights; it does not grant access to the operator's Composio key, Google project,
+or anyone else's data.
 
 ## How this was made
 

@@ -25,7 +25,9 @@ Commands (all read/write the local DB; safe to run repeatedly):
   radar     a few reason-lined reach-out suggestions (quiet when there's nothing real)
   context   the allowed context pack for one person (for the agent to draft from)
   dupes     possible duplicate people to confirm (never auto-merged)
-  merge     merge one person into another after you've confirmed (reversible-ish)
+  merge     merge one person into another after you've confirmed
+  merges    list identity merges and their current status
+  unmerge   reverse a confirmed identity merge
 
 No third-party packages — standard library only (Python 3.8+).
 """
@@ -103,6 +105,25 @@ CREATE TABLE IF NOT EXISTS suggestions (
     kind TEXT, reason TEXT, score REAL, facts TEXT,
     created_at TEXT, user_action TEXT
 );
+CREATE TABLE IF NOT EXISTS identity_merges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_connection_id INTEGER NOT NULL REFERENCES connections(id),
+    into_connection_id INTEGER NOT NULL REFERENCES connections(id),
+    from_source TEXT, created_at TEXT NOT NULL, undone_at TEXT,
+    merged_meta_existed INTEGER NOT NULL DEFAULT 0,
+    merged_priority TEXT, merged_mode TEXT, merged_meta_updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS identity_merge_items (
+    merge_id INTEGER NOT NULL REFERENCES identity_merges(id),
+    table_name TEXT NOT NULL, row_id INTEGER NOT NULL,
+    PRIMARY KEY (merge_id, table_name, row_id)
+);
+CREATE TABLE IF NOT EXISTS identity_merge_meta (
+    merge_id INTEGER NOT NULL REFERENCES identity_merges(id),
+    connection_id INTEGER NOT NULL REFERENCES connections(id),
+    existed INTEGER NOT NULL, priority TEXT, mode TEXT, updated_at TEXT,
+    PRIMARY KEY (merge_id, connection_id)
+);
 CREATE INDEX IF NOT EXISTS idx_int_conn ON interactions(connection_id);
 CREATE INDEX IF NOT EXISTS idx_loop_conn ON open_loops(connection_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_int_srcref
@@ -133,23 +154,38 @@ def _natural_key(url, name, company):
     return "nc:" + ((name or "") + "|" + (company or "")).lower()
 
 
+def _canonical_person(conn, person):
+    """Follow an active, confirmed merge without discarding the alias record."""
+    seen = set()
+    while person and person["id"] not in seen:
+        seen.add(person["id"])
+        marker = person["source"] or ""
+        match = re.fullmatch(r"merged_into_(\d+)", marker)
+        if not match:
+            return person
+        person = conn.execute(
+            "SELECT * FROM connections WHERE id=?", (int(match.group(1)),)
+        ).fetchone()
+    return person
+
+
 def find_person(conn, name=None, email=None, url=None):
     c = conn.cursor()
     if url:
         r = c.execute("SELECT * FROM connections WHERE lower(url)=?",
                       (url.rstrip("/").lower(),)).fetchone()
         if r:
-            return r
+            return _canonical_person(conn, r)
     if email:
         r = c.execute("SELECT * FROM connections WHERE email<>'' AND lower(email)=?",
                       (email.lower(),)).fetchone()
         if r:
-            return r
+            return _canonical_person(conn, r)
     if name:
         rows = c.execute("SELECT * FROM connections WHERE lower(full_name)=?",
                          (name.lower(),)).fetchall()
         if len(rows) == 1:
-            return rows[0]
+            return _canonical_person(conn, rows[0])
         if len(rows) > 1:
             raise SystemExit(
                 f"'{name}' matches {len(rows)} people — pass --email or --url to "
@@ -352,9 +388,10 @@ def cmd_recall(conn, a):
         """SELECT DISTINCT c.id FROM connections c
            LEFT JOIN notes n ON n.connection_id=c.id
            LEFT JOIN interactions i ON i.connection_id=c.id
-           WHERE lower(c.full_name) LIKE ? OR lower(c.company) LIKE ?
+           WHERE (lower(c.full_name) LIKE ? OR lower(c.company) LIKE ?
               OR lower(c.title) LIKE ? OR lower(n.content) LIKE ?
-              OR lower(i.summary) LIKE ?
+              OR lower(i.summary) LIKE ?)
+             AND c.source NOT LIKE 'merged_into_%'
            ORDER BY c.full_name LIMIT 25""",
         (like, like, like, like, like)).fetchall()]
     if not ids:
@@ -495,7 +532,9 @@ def _norm(s):
 
 
 def cmd_dupes(conn, a):
-    people = conn.execute("SELECT * FROM connections").fetchall()
+    people = conn.execute(
+        "SELECT * FROM connections WHERE source NOT LIKE 'merged_into_%'"
+    ).fetchall()
     pairs = []
     # deterministic: same email or same url on different ids
     for field in ("email", "url"):
@@ -574,15 +613,165 @@ def cmd_merge(conn, a):
     dst = person_row(conn, a.into)
     if not src or not dst:
         raise SystemExit("Both --from and --into must be existing person ids.")
-    for tbl in ("interactions", "open_loops", "notes", "suggestions"):
-        conn.execute(f"UPDATE {tbl} SET connection_id=? WHERE connection_id=?",
-                     (a.into, a.src))
-    # keep the merged record but mark it, so the merge is auditable/undoable
-    conn.execute("UPDATE connections SET source='merged_into_'||?, updated_at=? WHERE id=?",
-                 (a.into, now(), a.src))
-    conn.commit()
+    if a.src == a.into:
+        raise SystemExit("--from and --into must be different person ids.")
+    if (src["source"] or "").startswith("merged_into_"):
+        raise SystemExit(f"#{a.src} is already merged. Run trellis.py merges to inspect it.")
+    if (dst["source"] or "").startswith("merged_into_"):
+        raise SystemExit(f"#{a.into} is already merged into someone else.")
+
+    stamp = now()
+    try:
+        cur = conn.execute("""INSERT INTO identity_merges
+            (from_connection_id, into_connection_id, from_source, created_at)
+            VALUES (?,?,?,?)""", (a.src, a.into, src["source"], stamp))
+        merge_id = cur.lastrowid
+
+        for tbl in ("interactions", "open_loops", "notes", "suggestions"):
+            row_ids = [r["id"] for r in conn.execute(
+                f"SELECT id FROM {tbl} WHERE connection_id=?", (a.src,)).fetchall()]
+            conn.executemany("""INSERT INTO identity_merge_items
+                (merge_id, table_name, row_id) VALUES (?,?,?)""",
+                [(merge_id, tbl, row_id) for row_id in row_ids])
+            conn.execute(f"UPDATE {tbl} SET connection_id=? WHERE connection_id=?",
+                         (a.into, a.src))
+
+        src_meta = meta_for(conn, a.src)
+        dst_meta = meta_for(conn, a.into)
+        for cid, meta in ((a.src, src_meta), (a.into, dst_meta)):
+            conn.execute("""INSERT INTO identity_merge_meta
+                (merge_id, connection_id, existed, priority, mode, updated_at)
+                VALUES (?,?,?,?,?,?)""",
+                (merge_id, cid, 1 if meta else 0,
+                 meta["priority"] if meta else None,
+                 meta["mode"] if meta else None,
+                 meta["updated_at"] if meta else None))
+
+        if src_meta:
+            order = {"muted": 0, "normal": 1, "important": 2, "critical": 3}
+            src_priority = src_meta["priority"] or "normal"
+            dst_priority = (dst_meta["priority"] if dst_meta else None) or "normal"
+            priority = max((src_priority, dst_priority), key=lambda p: order.get(p, 1))
+            mode = (dst_meta["mode"] if dst_meta else None) or src_meta["mode"]
+            conn.execute("""INSERT INTO person_meta
+                (connection_id, priority, mode, updated_at) VALUES (?,?,?,?)
+                ON CONFLICT(connection_id) DO UPDATE SET priority=excluded.priority,
+                mode=excluded.mode, updated_at=excluded.updated_at""",
+                (a.into, priority, mode, stamp))
+            conn.execute("DELETE FROM person_meta WHERE connection_id=?", (a.src,))
+
+        merged_meta = meta_for(conn, a.into)
+        conn.execute("""UPDATE identity_merges SET merged_meta_existed=?,
+            merged_priority=?, merged_mode=?, merged_meta_updated_at=? WHERE id=?""",
+            (1 if merged_meta else 0,
+             merged_meta["priority"] if merged_meta else None,
+             merged_meta["mode"] if merged_meta else None,
+             merged_meta["updated_at"] if merged_meta else None,
+             merge_id))
+        conn.execute("UPDATE connections SET source='merged_into_'||?, updated_at=? WHERE id=?",
+                     (a.into, stamp, a.src))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
     print(f"Merged #{a.src} ({src['full_name']}) into #{a.into} ({dst['full_name']}). "
           f"History moved; the old record is marked, not deleted.")
+    print(f"Merge #{merge_id} is reversible: trellis.py unmerge --merge-id {merge_id}")
+
+
+def cmd_merges(conn, a):
+    rows = conn.execute("""SELECT m.*, src.full_name AS from_name,
+        dst.full_name AS into_name
+        FROM identity_merges m
+        JOIN connections src ON src.id=m.from_connection_id
+        JOIN connections dst ON dst.id=m.into_connection_id
+        ORDER BY m.id DESC""").fetchall()
+    if not rows:
+        print("No identity merges recorded.")
+        return
+    print(f"{len(rows)} identity merge(s):\n")
+    for r in rows:
+        status = f"undone {r['undone_at']}" if r["undone_at"] else "active"
+        print(f"  #{r['id']}  person #{r['from_connection_id']} {r['from_name']}"
+              f" → person #{r['into_connection_id']} {r['into_name']}  [{status}]")
+
+
+def cmd_unmerge(conn, a):
+    merge = conn.execute(
+        "SELECT * FROM identity_merges WHERE id=?", (a.merge_id,)).fetchone()
+    if not merge:
+        raise SystemExit(f"No identity merge #{a.merge_id}.")
+    if merge["undone_at"]:
+        raise SystemExit(f"Identity merge #{a.merge_id} was already undone.")
+
+    src = person_row(conn, merge["from_connection_id"])
+    dst = person_row(conn, merge["into_connection_id"])
+    expected_marker = f"merged_into_{merge['into_connection_id']}"
+    if not src or not dst or src["source"] != expected_marker:
+        raise SystemExit(
+            f"Identity merge #{a.merge_id} cannot be safely undone because the "
+            "person records changed after it. Inspect trellis.py merges first.")
+
+    later = conn.execute("""SELECT id FROM identity_merges
+        WHERE undone_at IS NULL AND id>? AND
+        (from_connection_id IN (?,?) OR into_connection_id IN (?,?))
+        ORDER BY id DESC LIMIT 1""",
+        (a.merge_id, merge["from_connection_id"], merge["into_connection_id"],
+         merge["from_connection_id"], merge["into_connection_id"])).fetchone()
+    if later:
+        raise SystemExit(
+            f"Undo newer identity merge #{later['id']} first; it touches one of "
+            "the same people.")
+
+    current_src_meta = meta_for(conn, merge["from_connection_id"])
+    current_dst_meta = meta_for(conn, merge["into_connection_id"])
+    destination_unchanged = (
+        bool(current_dst_meta) == bool(merge["merged_meta_existed"])
+        and (not current_dst_meta or (
+            current_dst_meta["priority"] == merge["merged_priority"]
+            and current_dst_meta["mode"] == merge["merged_mode"]
+            and current_dst_meta["updated_at"] == merge["merged_meta_updated_at"]))
+    )
+    if current_src_meta or not destination_unchanged:
+        raise SystemExit(
+            f"Identity merge #{a.merge_id} cannot be safely undone because relationship "
+            "metadata changed after the merge. Preserve or move that newer metadata, "
+            "then retry.")
+
+    try:
+        items = conn.execute("""SELECT table_name, row_id
+            FROM identity_merge_items WHERE merge_id=?""", (a.merge_id,)).fetchall()
+        allowed = {"interactions", "open_loops", "notes", "suggestions"}
+        for item in items:
+            if item["table_name"] not in allowed:
+                raise RuntimeError("Unknown merge journal table; refusing unsafe undo.")
+            conn.execute(
+                f"UPDATE {item['table_name']} SET connection_id=? WHERE id=?",
+                (merge["from_connection_id"], item["row_id"]))
+
+        snapshots = conn.execute("""SELECT * FROM identity_merge_meta
+            WHERE merge_id=?""", (a.merge_id,)).fetchall()
+        for snapshot in snapshots:
+            cid = snapshot["connection_id"]
+            conn.execute("DELETE FROM person_meta WHERE connection_id=?", (cid,))
+            if snapshot["existed"]:
+                conn.execute("""INSERT INTO person_meta
+                    (connection_id, priority, mode, updated_at) VALUES (?,?,?,?)""",
+                    (cid, snapshot["priority"], snapshot["mode"],
+                     snapshot["updated_at"]))
+
+        conn.execute("UPDATE connections SET source=?, updated_at=? WHERE id=?",
+                     (merge["from_source"], now(), merge["from_connection_id"]))
+        conn.execute("UPDATE identity_merges SET undone_at=? WHERE id=?",
+                     (now(), a.merge_id))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    print(f"Undid identity merge #{a.merge_id}. #{src['id']} ({src['full_name']}) "
+          f"and #{dst['id']} ({dst['full_name']}) are separate again.")
 
 
 # ---------------------------------------------------------------------------
@@ -632,11 +821,17 @@ def main():
     mrg.add_argument("--from", dest="src", type=int, required=True)
     mrg.add_argument("--into", type=int, required=True)
 
+    sub.add_parser("merges", help="list identity merges and their status")
+
+    unm = sub.add_parser("unmerge", help="reverse a confirmed identity merge")
+    unm.add_argument("--merge-id", type=int, required=True)
+
     a = ap.parse_args()
     conn = connect(a.db)
     {"capture": cmd_capture, "ingest": cmd_ingest, "recall": cmd_recall,
      "loops": cmd_loops, "radar": cmd_radar, "context": cmd_context,
-     "dupes": cmd_dupes, "merge": cmd_merge, "apply": cmd_apply}[a.cmd](conn, a)
+     "dupes": cmd_dupes, "merge": cmd_merge, "merges": cmd_merges,
+     "unmerge": cmd_unmerge, "apply": cmd_apply}[a.cmd](conn, a)
     conn.close()
 
 

@@ -129,7 +129,8 @@ the chat. Read that block, then save each person — call `trellis.py capture` p
 `trellis.py apply`. It's a text instruction, not a file; no JSON required from the user.
 
 Keep the trust contract: cite sources, show the reason, never invent, confirm
-duplicates (`trellis.py dupes` / `merge`), never auto-send.
+duplicates (`trellis.py dupes` / `merge`), keep identity decisions reversible
+(`trellis.py merges` / `unmerge`), never auto-send.
 
 ## Email recency — the Gmail sweep (fourth capability)
 
@@ -149,10 +150,13 @@ check, the substring-match caveat (always name `matched_address` in your answer)
 and when subjects may be pulled. First run needs an OAuth client JSON at
 `data/gmail_oauth_client.json` and opens a one-click browser consent.
 
-**Hosted agents (Hermes/Agent37): skip the script entirely.** Fetch headers with
-your own connected Gmail tool and feed `trellis.py ingest` instead — the how is in
-`skills/email-recency.md` under "On hosted agents". This repo never requests
-Google scopes on a server.
+**Hosted agents (Hermes/Agent37): skip the local OAuth script.** Prefer the
+Network Observatory Connect service described in `skills/network-observatory/SKILL.md`.
+It creates one private, revocable MCP endpoint per tester through the operator's
+custom Composio Gmail auth config. The project credential stays on the server,
+and the endpoint returns only allowlisted sender, recipient, date, label, and ID
+metadata. Feed those events to `trellis.py ingest` as described in
+`skills/email-recency.md`.
 
 ## Updating the tool
 

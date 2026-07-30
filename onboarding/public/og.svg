@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#17142f"/>
+      <stop offset="1" stop-color="#2f2859"/>
+    </linearGradient>
+    <filter id="glow" x="-200%" y="-200%" width="400%" height="400%">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" rx="36" fill="url(#bg)"/>
+  <circle cx="1035" cy="110" r="220" fill="#fff9f0" opacity=".035"/>
+  <circle cx="980" cy="530" r="250" fill="#f47b20" opacity=".035"/>
+
+  <g fill="none" stroke="#b4acd5" stroke-width="1.5" opacity=".48">
+    <path d="M680 324 754 205 840 270 936 178 1025 242"/>
+    <path d="M680 324 772 378 858 333 941 422 1063 362"/>
+    <path d="M754 205 815 125 936 178"/>
+    <path d="M840 270 858 333 936 178"/>
+    <path d="M858 333 969 300 1063 362"/>
+    <path d="M772 378 803 492 941 422"/>
+    <path d="M941 422 1005 510 1098 458"/>
+    <path d="M1025 242 1090 176"/>
+  </g>
+
+  <g fill="#f47b20" opacity=".25" filter="url(#glow)">
+    <circle cx="680" cy="324" r="18"/>
+    <circle cx="936" cy="178" r="15"/>
+    <circle cx="941" cy="422" r="15"/>
+  </g>
+  <g>
+    <circle cx="680" cy="324" r="8" fill="#f47b20"/>
+    <circle cx="754" cy="205" r="5" fill="#fff9f0"/>
+    <circle cx="840" cy="270" r="6" fill="#b4acd5"/>
+    <circle cx="936" cy="178" r="7" fill="#f47b20"/>
+    <circle cx="1025" cy="242" r="5" fill="#fff9f0"/>
+    <circle cx="772" cy="378" r="5" fill="#fff9f0"/>
+    <circle cx="858" cy="333" r="6" fill="#b4acd5"/>
+    <circle cx="941" cy="422" r="7" fill="#f47b20"/>
+    <circle cx="1063" cy="362" r="5" fill="#fff9f0"/>
+    <circle cx="815" cy="125" r="4" fill="#fff9f0"/>
+    <circle cx="969" cy="300" r="4" fill="#fff9f0"/>
+    <circle cx="803" cy="492" r="5" fill="#b4acd5"/>
+    <circle cx="1005" cy="510" r="4" fill="#fff9f0"/>
+    <circle cx="1098" cy="458" r="5" fill="#b4acd5"/>
+    <circle cx="1090" cy="176" r="4" fill="#fff9f0"/>
+  </g>
+
+  <g transform="translate(605 322)" fill="none" stroke="#f47b20" stroke-width="3" opacity=".9">
+    <rect x="-42" y="-29" width="68" height="48" rx="8"/>
+    <path d="m-38-23 30 24 30-24"/>
+    <path d="M31-5h29m-20-13h43m-34 26h25" stroke-linecap="round" opacity=".72"/>
+  </g>
+
+  <text x="80" y="116" fill="#f47b20" font-family="Inter, Arial, sans-serif"
+    font-size="22" font-weight="700" letter-spacing="3">NETWORK OBSERVATORY</text>
+  <text x="80" y="226" fill="#fff9f0" font-family="Georgia, serif"
+    font-size="67" font-weight="600">Your network,</text>
+  <text x="80" y="302" fill="#fff9f0" font-family="Georgia, serif"
+    font-size="67" font-weight="600">with more memory.</text>
+  <text x="84" y="382" fill="#d7d1eb" font-family="Inter, Arial, sans-serif"
+    font-size="25">LinkedIn first. Gmail metadata optional.</text>
+  <text x="84" y="426" fill="#d7d1eb" font-family="Inter, Arial, sans-serif"
+    font-size="25">Identity decisions reversible.</text>
+  <rect x="80" y="506" width="242" height="4" rx="2" fill="#f47b20"/>
+</svg>

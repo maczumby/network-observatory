@@ -31,6 +31,8 @@ python3 scripts/trellis.py context --name "Maya Chen"
 
 # housekeeping
 python3 scripts/trellis.py dupes            # possible duplicate people to confirm
+python3 scripts/trellis.py merges           # audit active and undone identity merges
+python3 scripts/trellis.py unmerge --merge-id 3
 ```
 
 ## The trust contract (why you can rely on it)
@@ -40,8 +42,9 @@ python3 scripts/trellis.py dupes            # possible duplicate people to confi
 - **It never invents.** `context` returns only stored facts for drafting.
 - **It stays quiet.** When there's nothing real to surface, it says so — it won't
   invent reasons to bother people.
-- **It never merges blindly and never sends.** Duplicates are shown for you to confirm;
-  drafting is on request; sending is always yours.
+- **It never merges blindly and never sends.** Duplicates are shown for you to confirm.
+  Every confirmed merge is journaled, and `unmerge` restores the records and relationship
+  metadata to their exact pre-merge owners. Drafting is on request; sending is always yours.
 
 ## How the map and Trellis connect
 

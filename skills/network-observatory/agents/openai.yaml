@@ -1,0 +1,4 @@
+interface:
+  display_name: "Network Observatory"
+  short_description: "Build and enrich a private network map"
+  default_prompt: "Use $network-observatory to set up my LinkedIn network map and optional Gmail metadata enrichment."
