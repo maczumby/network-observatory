@@ -12,7 +12,6 @@ type Setup = {
 
 export default function Home() {
   const [email, setEmail] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
   const [setup, setSetup] = useState<Setup | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -39,7 +38,6 @@ export default function Home() {
     sessionStorage.removeItem("netobs-setup");
     setSetup(null);
     setEmail("");
-    setInviteCode("");
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -51,7 +49,7 @@ export default function Home() {
       const response = await fetch("/api/provision", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, inviteCode }),
+        body: JSON.stringify({ email }),
       });
       const data = (await response.json()) as Setup & { error?: string };
       if (!response.ok) throw new Error(data.error || "Setup failed.");
@@ -102,6 +100,17 @@ export default function Home() {
           <div className="step">
             <span>02</span>
             <div>
+              <h2>Give your agent the setup command</h2>
+              <p>
+                The page shows it once. Copy it and paste it to your agent
+                before anything else; it's your private endpoint, connecting
+                only your agent and your Gmail.
+              </p>
+            </div>
+          </div>
+          <div className="step">
+            <span>03</span>
+            <div>
               <h2>Approve Google</h2>
               <p>
                 The test app is currently unverified, so Google shows a warning.
@@ -110,13 +119,6 @@ export default function Home() {
                 retry this page. While the app is in testing, you'll reconnect
                 every seven days.
               </p>
-            </div>
-          </div>
-          <div className="step">
-            <span>03</span>
-            <div>
-              <h2>Give Hermes the endpoint</h2>
-              <p>Your private MCP address connects only your agent and your Gmail.</p>
             </div>
           </div>
         </div>
@@ -135,16 +137,6 @@ export default function Home() {
                 required
               />
 
-              <label htmlFor="invite">Invite code (only if you were given one)</label>
-              <input
-                id="invite"
-                type="password"
-                autoComplete="one-time-code"
-                value={inviteCode}
-                onChange={(event) => setInviteCode(event.target.value)}
-                placeholder="netobs_… or leave blank"
-              />
-
               {error ? <p className="error" role="alert">{error}</p> : null}
               <button type="submit" disabled={busy}>
                 {busy ? "Creating your private session…" : "Create my connection"}
@@ -160,30 +152,32 @@ export default function Home() {
               <h2>Two steps, in order.</h2>
               <ol className="success-steps">
                 <li>
-                  <a
-                    className="primary-link"
-                    href={setup.connectUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Step 1 — Connect my Google account
-                  </a>
-                  <p>
-                    Opens in a new tab. Approve the Google screen there, then
-                    come back to this tab. This page will still be here.
-                  </p>
-                </li>
-                <li>
                   <div className="code-wrap">
-                    <div className="code-label">Step 2 — Paste this to your agent</div>
+                    <div className="code-label">Step 1 — Copy this and paste it to your agent</div>
                     <pre>{hermesSetup}</pre>
                     <button className="secondary" type="button" onClick={copySetup}>
                       Copy setup
                     </button>
                   </div>
                   <p>
-                    Copy it now. For your security this command is shown only
-                    once; if you lose it, start over and sign in again.
+                    Do this first. For your security it is shown only once, so
+                    put it somewhere safe (your agent chat is perfect) before
+                    moving on.
+                  </p>
+                </li>
+                <li>
+                  <a
+                    className="primary-link"
+                    href={setup.connectUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Step 2 — Connect my Google account
+                  </a>
+                  <p>
+                    Opens in a new tab. Approve the Google screen there and
+                    you are done; your agent's connection starts working the
+                    moment you approve.
                   </p>
                 </li>
               </ol>

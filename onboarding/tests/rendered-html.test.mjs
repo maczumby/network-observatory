@@ -14,14 +14,20 @@ test("ships the public onboarding page and privacy promises", async () => {
   assert.match(page, /LinkedIn remains the source of truth/);
   assert.match(page, /Identity decisions stay reversible/);
   assert.match(page, /View the public source/);
-  assert.match(page, /only if you were given one/);
   assert.match(page, /send Mari the exact Gmail you used/);
+  // No invite field: the tester list is the only gate (Mari, 7/31).
+  assert.doesNotMatch(page, /Invite code/);
   // The one-time setup command must survive the Google round-trip (Mari lost
-  // hers to a same-tab navigation on 7/30) and the two steps must be ordered.
+  // hers to a same-tab navigation on 7/30), and copy-the-command comes FIRST
+  // so the unrecoverable step happens before leaving the page (Mari, 7/31).
   assert.match(page, /sessionStorage\.setItem\("netobs-setup"/);
   assert.match(page, /target="_blank"/);
-  assert.match(page, /Step 1 — Connect my Google account/);
-  assert.match(page, /Step 2 — Paste this to your agent/);
+  assert.match(page, /Step 1 — Copy this and paste it to your agent/);
+  assert.match(page, /Step 2 — Connect my Google account/);
+  assert.ok(
+    page.indexOf("Step 1 — Copy this") < page.indexOf("Step 2 — Connect my Google"),
+    "copy step must render before the Google step",
+  );
   assert.doesNotMatch(page, /SkeletonPreview|react-loading-skeleton/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });
