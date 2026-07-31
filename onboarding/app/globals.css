@@ -136,11 +136,40 @@ h1 {
   letter-spacing: -0.025em;
 }
 
-.step p, .success > p {
+.step p {
   margin: 0;
   color: rgba(252, 246, 220, 0.63);
   line-height: 1.55;
 }
+
+/* The success panel sits on the light card, not the dark grid — the cream
+   step color is invisible there. */
+.success p {
+  margin: 8px 0 0;
+  color: var(--text-subtle);
+  line-height: 1.55;
+}
+
+.success-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 26px;
+}
+
+.linklike {
+  margin-top: 18px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-subtle);
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+  width: fit-content;
+}
+.linklike:hover { background: none; color: var(--text); }
 
 .panel {
   min-height: 470px;

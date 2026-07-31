@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Setup = {
   connectUrl: string;
@@ -21,6 +21,27 @@ export default function Home() {
     [setup],
   );
 
+  // The Google consent flow leaves this page, and the setup command is shown
+  // exactly once (the server keeps only a hash). Losing it on "back" strands
+  // the user, so keep it for the life of this browser tab.
+  useEffect(() => {
+    const saved = sessionStorage.getItem("netobs-setup");
+    if (saved) {
+      try {
+        setSetup(JSON.parse(saved) as Setup);
+      } catch {
+        sessionStorage.removeItem("netobs-setup");
+      }
+    }
+  }, []);
+
+  function startOver() {
+    sessionStorage.removeItem("netobs-setup");
+    setSetup(null);
+    setEmail("");
+    setInviteCode("");
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -34,6 +55,7 @@ export default function Home() {
       });
       const data = (await response.json()) as Setup & { error?: string };
       if (!response.ok) throw new Error(data.error || "Setup failed.");
+      sessionStorage.setItem("netobs-setup", JSON.stringify(data));
       setSetup(data);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Setup failed.");
@@ -135,19 +157,40 @@ export default function Home() {
           ) : (
             <div className="success" aria-live="polite">
               <div className="success-mark">Ready</div>
-              <h2>Your private session is waiting.</h2>
-              <p>First, authorize Gmail. Then copy the Hermes setup below.</p>
-              <a className="primary-link" href={setup.connectUrl}>
-                Connect my Google account
-              </a>
-              <div className="code-wrap">
-                <div className="code-label">Private Hermes setup</div>
-                <pre>{hermesSetup}</pre>
-                <button className="secondary" type="button" onClick={copySetup}>
-                  Copy setup
-                </button>
-              </div>
+              <h2>Two steps, in order.</h2>
+              <ol className="success-steps">
+                <li>
+                  <a
+                    className="primary-link"
+                    href={setup.connectUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Step 1 — Connect my Google account
+                  </a>
+                  <p>
+                    Opens in a new tab. Approve the Google screen there, then
+                    come back to this tab. This page will still be here.
+                  </p>
+                </li>
+                <li>
+                  <div className="code-wrap">
+                    <div className="code-label">Step 2 — Paste this to your agent</div>
+                    <pre>{hermesSetup}</pre>
+                    <button className="secondary" type="button" onClick={copySetup}>
+                      Copy setup
+                    </button>
+                  </div>
+                  <p>
+                    Copy it now. For your security this command is shown only
+                    once; if you lose it, start over and sign in again.
+                  </p>
+                </li>
+              </ol>
               <p className="fineprint">{setup.note}</p>
+              <button className="linklike" type="button" onClick={startOver}>
+                Start over with a different account
+              </button>
             </div>
           )}
         </div>

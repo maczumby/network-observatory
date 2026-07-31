@@ -5,14 +5,14 @@ export default function Connected() {
     <main className="connected-page">
       <div className="connected-card">
         <div className="success-mark">Connected</div>
-        <h1>Google handed you back to the Observatory.</h1>
+        <h1>Google approved. You can close this tab.</h1>
         <p>
-          Return to the setup tab, copy your private Hermes configuration, and
-          test the connection. If Google expires the test authorization later,
-          your agent will ask you to reconnect.
+          Your setup command is waiting on the first tab, under Step 2. Copy it
+          and paste it to your agent. If Google expires the test authorization
+          later, your agent will ask you to reconnect.
         </p>
         <Link className="primary-link" href="/">
-          Return to setup
+          Take me back to it
         </Link>
       </div>
     </main>

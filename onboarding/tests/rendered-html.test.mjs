@@ -16,6 +16,12 @@ test("ships the public onboarding page and privacy promises", async () => {
   assert.match(page, /View the public source/);
   assert.match(page, /only if you were given one/);
   assert.match(page, /send Mari the exact Gmail you used/);
+  // The one-time setup command must survive the Google round-trip (Mari lost
+  // hers to a same-tab navigation on 7/30) and the two steps must be ordered.
+  assert.match(page, /sessionStorage\.setItem\("netobs-setup"/);
+  assert.match(page, /target="_blank"/);
+  assert.match(page, /Step 1 — Connect my Google account/);
+  assert.match(page, /Step 2 — Paste this to your agent/);
   assert.doesNotMatch(page, /SkeletonPreview|react-loading-skeleton/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });
