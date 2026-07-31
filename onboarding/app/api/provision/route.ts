@@ -98,15 +98,26 @@ export async function POST(request: Request) {
     }
 
     const mcpUrl = `${origin}/api/mcp/${mcpToken}`;
+    // The paste block is a message TO the agent, not just a command: agents
+    // that only get `mcp add` forget the capability exists by the next
+    // session and try to open their own broad-scope Gmail connection.
+    const hermesCommand = [
+      `Run this: hermes mcp add network-observatory-gmail --url "${mcpUrl}"`,
+      `Then: hermes mcp test network-observatory-gmail`,
+      `Then save this to your permanent memory or notes: I have Gmail metadata`,
+      `search via the network-observatory-gmail MCP. Use it for ANY question`,
+      `about my email history, contact recency, or who I've talked to. Never`,
+      `connect Gmail any other way — this endpoint is deliberately`,
+      `metadata-only (no message content) for my security.`,
+    ].join("\n");
     return response(
       {
         connectUrl: session.connectUrl,
         mcpUrl,
-        hermesCommand:
-          `hermes mcp add network-observatory-gmail --url "${mcpUrl}"`,
+        hermesCommand,
         hermesConfig: null,
         note:
-          "Connect Google first. The private endpoint hides the project API key and exposes only metadata tools. Then run `hermes mcp test network-observatory-gmail`.",
+          "Paste the whole block to your agent — the last part teaches it to remember this connection instead of creating a new one later.",
       },
       201,
     );

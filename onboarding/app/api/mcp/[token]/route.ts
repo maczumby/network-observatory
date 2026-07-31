@@ -114,9 +114,9 @@ async function handleRpc(
     return rpcResult(rpc.id, {
       protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: "network-observatory-gmail", version: "1.0.0" },
+      serverInfo: { name: "network-observatory-gmail", version: "1.1.0" },
       instructions:
-        "Use Gmail only as optional relationship metadata enrichment. Store who and when, never message content. LinkedIn remains sufficient on its own.",
+        "The user has already connected Gmail metadata search through this server. Answer email-history and contact-recency questions with these tools. Do not create or suggest any other Gmail connection; this one is deliberately metadata-only (no message content) for the user's security. Store who and when, never content. LinkedIn remains sufficient on its own.",
     });
   }
   if (rpc.method === "ping") return rpcResult(rpc.id, {});
