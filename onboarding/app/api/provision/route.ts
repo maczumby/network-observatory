@@ -44,27 +44,34 @@ export async function POST(request: Request) {
     | null;
   const inviteCode = body?.inviteCode?.trim() || "";
   const email = normalizeEmail(body?.email || "");
-  if (!inviteCode.startsWith("netobs_") || !isEmail(email)) {
-    return response({ error: "Enter a valid email and invite code." }, 400);
+  if (!isEmail(email)) {
+    return response({ error: "Enter a valid email." }, 400);
+  }
+  // Invite codes are optional. The real gate is Google's tester list: anyone
+  // not on it fails at the consent screen. A code, when supplied, still binds
+  // to its intended email and burns on use.
+  const usingInvite = inviteCode.length > 0;
+  if (usingInvite && !inviteCode.startsWith("netobs_")) {
+    return response({ error: "That invite code doesn't look right." }, 400);
   }
 
-  const [tokenHash, emailHash] = await Promise.all([
-    sha256(inviteCode),
-    hmacSha256(runtime.IDENTITY_PEPPER, email),
-  ]);
-  const invite = await getInvite(tokenHash);
-  if (
-    !invite ||
-    invite.redeemed_at ||
-    invite.expires_at <= new Date().toISOString() ||
-    (invite.intended_email_hash && invite.intended_email_hash !== emailHash)
-  ) {
-    return response({ error: "This invite is invalid, expired, or already used." }, 403);
-  }
-
+  const emailHash = await hmacSha256(runtime.IDENTITY_PEPPER, email);
   const userId = `netobs_${emailHash.slice(0, 32)}`;
-  if (!(await reserveInvite(tokenHash, emailHash, userId))) {
-    return response({ error: "This invite is already being used." }, 409);
+  const tokenHash = usingInvite ? await sha256(inviteCode) : null;
+
+  if (usingInvite && tokenHash) {
+    const invite = await getInvite(tokenHash);
+    if (
+      !invite ||
+      invite.redeemed_at ||
+      invite.expires_at <= new Date().toISOString() ||
+      (invite.intended_email_hash && invite.intended_email_hash !== emailHash)
+    ) {
+      return response({ error: "This invite is invalid, expired, or already used." }, 403);
+    }
+    if (!(await reserveInvite(tokenHash, emailHash, userId))) {
+      return response({ error: "This invite is already being used." }, 409);
+    }
   }
 
   try {
@@ -82,7 +89,9 @@ export async function POST(request: Request) {
     ).toISOString();
     try {
       await createMcpToken(mcpTokenHash, session.sessionId, mcpExpiresAt);
-      await completeInvite(tokenHash, session.sessionId);
+      if (usingInvite && tokenHash) {
+        await completeInvite(tokenHash, session.sessionId);
+      }
     } catch (error) {
       await deleteSession(runtime.COMPOSIO_API_KEY, session.sessionId);
       throw error;
@@ -102,7 +111,9 @@ export async function POST(request: Request) {
       201,
     );
   } catch (error) {
-    await releaseInvite(tokenHash);
+    if (usingInvite && tokenHash) {
+      await releaseInvite(tokenHash);
+    }
     console.error("Composio provisioning failed", {
       message: error instanceof Error ? error.message : "unknown error",
     });

@@ -14,6 +14,8 @@ test("ships the public onboarding page and privacy promises", async () => {
   assert.match(page, /LinkedIn remains the source of truth/);
   assert.match(page, /Identity decisions stay reversible/);
   assert.match(page, /View the public source/);
+  assert.match(page, /only if you were given one/);
+  assert.match(page, /send Mari the exact Gmail you used/);
   assert.doesNotMatch(page, /SkeletonPreview|react-loading-skeleton/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });
@@ -24,7 +26,7 @@ test("health endpoint is public but does not disclose secret values", async () =
     "utf8",
   );
 
-  assert.match(health, /mode:\s*"invite-only"/);
+  assert.match(health, /mode:\s*"open-beta-tester-gated"/);
   assert.match(
     health,
     /gmailScope:\s*"https:\/\/www\.googleapis\.com\/auth\/gmail\.metadata"/,

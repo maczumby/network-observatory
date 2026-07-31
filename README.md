@@ -20,8 +20,8 @@ https://raw.githubusercontent.com/maczumby/network-observatory/main/skills/netwo
 The LinkedIn map needs nothing from anyone: your export in, your map out, all
 on your machine. The optional Gmail piece uses a metadata-only connection
 (sender, recipients, date; Google's servers refuse this connection message
-bodies) and currently needs a one-time invite from the operator while Google
-verification is pending.
+bodies). While Google verification is pending, your Gmail address needs to be
+on the operator's tester list; your agent will tell you what to do if it isn't.
 
 ## The fastest way to use it
 
@@ -58,14 +58,16 @@ hermes skills install \
 ```
 
 The public repo does not contain baked-in authentication. That is intentional:
-every person authorizes their own Gmail account. A one-time Connect invite
+every person authorizes their own Gmail account. Signing in at the Connect page
 creates a separate Composio user and a private, revocable MCP endpoint for their
 Hermes. Your Composio API key and Google client secret remain on the hosted
 service and are never given to the tester or committed to GitHub.
 
-Tester onboarding uses
-[Network Observatory Connect](https://network-observatory-connect.mari-network-observatory.workers.dev)
-together with a one-time invite code supplied privately by the operator.
+Tester onboarding is self-serve at
+[Network Observatory Connect](https://network-observatory-connect.mari-network-observatory.workers.dev):
+sign in with the Gmail you want connected. The only gate is Google's tester
+list, which the operator controls; if Google denies access, send the operator
+the exact Gmail you used and retry once you're added.
 
 Gmail is still optional. The hosted endpoint can return only sender, recipients,
 date, labels, and stable message IDs. It cannot return subjects, snippets,

@@ -70,8 +70,11 @@ export default function Home() {
           <div className="step">
             <span>01</span>
             <div>
-              <h2>Use your invite</h2>
-              <p>Each code creates one private Composio session for one person.</p>
+              <h2>Sign in</h2>
+              <p>
+                Enter the Gmail you want connected. You need to be on the tester
+                list first; if you're not sure, you probably are.
+              </p>
             </div>
           </div>
           <div className="step">
@@ -79,8 +82,11 @@ export default function Home() {
             <div>
               <h2>Approve Google</h2>
               <p>
-                The test app is currently unverified. While Google keeps it in
-                testing, you will need to reconnect after seven days.
+                The test app is currently unverified, so Google shows a warning.
+                That's expected. If Google says access is denied, you're not on
+                the tester list yet: send Mari the exact Gmail you used, then
+                retry this page. While the app is in testing, you'll reconnect
+                every seven days.
               </p>
             </div>
           </div>
@@ -107,15 +113,14 @@ export default function Home() {
                 required
               />
 
-              <label htmlFor="invite">Invite code</label>
+              <label htmlFor="invite">Invite code (only if you were given one)</label>
               <input
                 id="invite"
                 type="password"
                 autoComplete="one-time-code"
                 value={inviteCode}
                 onChange={(event) => setInviteCode(event.target.value)}
-                placeholder="netobs_…"
-                required
+                placeholder="netobs_… or leave blank"
               />
 
               {error ? <p className="error" role="alert">{error}</p> : null}

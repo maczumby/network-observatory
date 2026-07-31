@@ -16,7 +16,7 @@ export async function GET() {
       ok: true,
       configured,
       gmailScope: "https://www.googleapis.com/auth/gmail.metadata",
-      mode: "invite-only",
+      mode: "open-beta-tester-gated",
     },
     {
       headers: {

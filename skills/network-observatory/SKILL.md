@@ -34,18 +34,27 @@ Stop here successfully when the user does not want enrichment.
 Do not ask for a Google client secret, Composio API key, token, or project
 credential. Those belong to the hosted onboarding service.
 
-Beta limits, tell the user up front: the Google app behind this is in Testing,
-so the operator must add the user's exact Google address as a test user before
-the invite works, access needs a one-click reconnect every 7 days, and there
-are at most 100 seats. If the user just wants the map, skip this section
-entirely; LinkedIn needs no invite and no operator.
+If `network-observatory-gmail` is not configured on this agent, never work
+around it by connecting Gmail through your own Composio toolkit or any other
+default Gmail tool. Those request broad mailbox scopes, which is exactly what
+this design avoids. The Connect page below is the only path.
+
+After the map is built, offer this once: "Want to add Gmail metadata search?
+It can only see who you emailed and when, never the messages themselves."
+If the user says yes:
 
 1. Send the user to
-   `https://network-observatory-connect.mari-network-observatory.workers.dev`
-   and ask them to use their one-time invite.
-2. Wait while the user authorizes their own Google account.
-3. Have them run the private `hermes mcp add` command shown by the page.
-4. Run:
+   `https://network-observatory-connect.mari-network-observatory.workers.dev`.
+   They enter the Gmail they want connected (no invite code needed) and
+   authorize their own Google account in the browser. Google will warn the
+   app is unverified; that is expected while it is in Testing.
+2. If Google refuses with "access denied", they are not on the tester list
+   yet. Have them send the exact Gmail they used to the operator
+   (mari@filament.dm), wait for her confirmation, then retry the same page.
+   There are at most 100 tester seats, and access needs a one-click
+   reconnect every 7 days until Google verification lands.
+3. When the page shows a command starting `hermes mcp add`, ask the user to
+   paste it to you, then run it, then run:
 
 ```bash
 hermes mcp test network-observatory-gmail
@@ -113,5 +122,5 @@ the journal ID so the user can reverse it.
 - Explain why a person appears in radar.
 - Draft only from stored facts.
 - Never send a message.
-- Never expose the private MCP URL or invite code in a public channel.
+- Never expose the private MCP URL in a public channel.
 - Keep the Observatory useful with LinkedIn alone.
