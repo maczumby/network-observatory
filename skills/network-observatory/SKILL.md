@@ -84,8 +84,11 @@ For every message:
 1. Parse addresses from the allowed headers.
 2. Exclude the user's own addresses.
 3. Create one Trellis event per external correspondent.
-4. Use the message date, a fixed summary such as `email exchanged`, source
-   `gmail`, and source reference `<message-id>:<correspondent-email>`.
+4. Use the message date, source `gmail`, and source reference
+   `<message-id>:<correspondent-email>`. For the summary, record direction
+   and nothing else: `email received` when the correspondent is in the From
+   header, `email sent` when the user is. (Older ingests wrote
+   `email exchanged`; leave those alone.)
 5. Ingest with `python3 scripts/trellis.py ingest --json ...`.
 
 Do not copy any returned header value into the summary except identity and date
@@ -93,6 +96,29 @@ fields. Re-runs are idempotent because the source reference is stable.
 
 Say when a sweep is partial. A remaining `nextPageToken`, failed page, or failed
 message means absence and staleness are not proven.
+
+## Show the warmth table after enriching
+
+After any enrichment pass, build the inspectable table and hand over the link:
+
+```bash
+python3 scripts/warmth_export.py
+```
+
+It writes `dashboard/warmth.html`, which `serve.py` already serves behind the
+same password as the map. Report coverage plainly: how many interactions, over
+what date range, and how many contacts remain unmeasured. The table separates
+`no data` from `cold` on purpose — never describe an unmeasured contact as cold.
+
+For one-off questions ("how warm is Tony?"), use:
+
+```bash
+python3 scripts/trellis.py warmth --name "Tony"
+```
+
+It answers with the last-contact date, direction, and bucket, and it never
+writes suggestions, so it is safe to run any time. Carry the coverage caveat
+whenever the sweep has not reached the end of the mailbox.
 
 ## Ingest other optional sources
 

@@ -26,6 +26,12 @@ python3 scripts/trellis.py capture --name "Sam Rivera" --company "Walmart" \
 python3 scripts/trellis.py loops            # open loops — who you left hanging
 python3 scripts/trellis.py radar            # a few reach-outs worth making, with reasons
 
+# who's warm, who's going cold, and what's still unmeasured?
+python3 scripts/trellis.py warmth                    # whole graph, warmest first
+python3 scripts/trellis.py warmth --name "Tony"      # one person, with receipts context
+python3 scripts/trellis.py warmth --bucket cold      # triage a temperature band
+python3 scripts/warmth_export.py                     # bake the browsable table (dashboard/warmth.html)
+
 # help me write to someone (agent drafts from this; never sends)
 python3 scripts/trellis.py context --name "Maya Chen"
 
@@ -34,6 +40,12 @@ python3 scripts/trellis.py dupes            # possible duplicate people to confi
 python3 scripts/trellis.py merges           # audit active and undone identity merges
 python3 scripts/trellis.py unmerge --merge-id 3
 ```
+
+Warmth buckets are absolute and match the email-recency skill: active is 14
+days or fewer, warm 15 to 60, cooling 61 to 180, cold over 180. A person with
+no interactions is `no data`, never `cold` — unmeasured is not the same as
+ignored, and the table says how much of the graph is measured right at the
+top. `warmth` is read-only: unlike `radar`, it never writes suggestions.
 
 ## The trust contract (why you can rely on it)
 

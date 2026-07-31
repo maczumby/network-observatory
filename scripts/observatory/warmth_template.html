@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Warmth — Network Observatory</title>
+<style>
+  :root {
+    --bg: #14160f; --card: #1e2119; --line: rgba(252,246,220,0.12);
+    --ink: #fcf6dc; --ink-dim: rgba(252,246,220,0.62); --accent: #f19779;
+    --active: #9ed69b; --warm: #f1c179; --cooling: #9fb8c9; --cold: #7d8896;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+    padding: 26px 28px 0;
+  }
+  h1 { margin: 0; font-size: 22px; letter-spacing: -0.02em; }
+  header a { color: var(--accent); text-decoration: none; font-size: 14px; }
+  header a:hover { text-decoration: underline; }
+  .coverage {
+    margin: 14px 28px 0; padding: 14px 16px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--card); font-size: 14px;
+    color: var(--ink-dim);
+  }
+  .coverage strong { color: var(--ink); font-weight: 600; }
+  .controls {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    padding: 16px 28px;
+  }
+  .chip {
+    padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line);
+    background: none; color: var(--ink-dim); font-size: 13px; cursor: pointer;
+  }
+  .chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  input[type="search"] {
+    margin-left: auto; padding: 7px 12px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    font-size: 14px; width: min(260px, 100%);
+  }
+  .tablewrap { overflow-x: auto; padding: 0 28px 40px; }
+  table { border-collapse: collapse; width: 100%; min-width: 720px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--ink-dim); cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  th .arrow { opacity: 0.7; }
+  td.num { font-variant-numeric: tabular-nums; }
+  tr.person { cursor: pointer; }
+  tr.person:hover td { background: rgba(252,246,220,0.04); }
+  .bucket {
+    display: inline-block; padding: 2px 9px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; color: var(--bg);
+  }
+  .b-active { background: var(--active); }
+  .b-warm { background: var(--warm); }
+  .b-cooling { background: var(--cooling); }
+  .b-cold { background: var(--cold); }
+  .b-nodata {
+    background: none; color: var(--ink-dim);
+    border: 1px dashed rgba(252,246,220,0.35);
+  }
+  .flagstar { color: var(--accent); }
+  .name a { color: var(--ink); text-decoration: none; }
+  .name a:hover { color: var(--accent); }
+  .sub { color: var(--ink-dim); font-size: 13px; }
+  tr.receipts td {
+    background: var(--card); padding: 12px 16px 12px 40px; font-size: 13px;
+    color: var(--ink-dim);
+  }
+  tr.receipts ul { margin: 0; padding: 0; list-style: none; }
+  tr.receipts li { padding: 2px 0; font-variant-numeric: tabular-nums; }
+  .empty {
+    margin: 60px auto; max-width: 520px; text-align: center; padding: 32px;
+    border: 1px solid var(--line); border-radius: 14px; background: var(--card);
+  }
+  .empty h2 { margin: 0 0 10px; }
+  .empty p { color: var(--ink-dim); }
+  footer { padding: 0 28px 30px; font-size: 13px; color: var(--ink-dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Warmth</h1>
+  <a href="observatory.html">← back to the map</a>
+</header>
+<div id="app"></div>
+<script>
+window.WARMTH = __WARMTH_DATA__;
+(function () {
+  var data = window.WARMTH;
+  var app = document.getElementById("app");
+  var cov = data.coverage;
+
+  if (!cov.interactions) {
+    app.innerHTML =
+      '<div class="empty"><h2>No contact data yet</h2>' +
+      '<p>Your ' + cov.contacts + ' connections are here, but nothing has been ' +
+      'measured against real contact history. Ask your agent to run the Gmail ' +
+      'metadata sweep (or log interactions), then rebuild this page.</p></div>';
+    return;
+  }
+
+  var pct = Math.round(100 * cov.contacts_with_signal / cov.contacts);
+  var srcBits = Object.keys(cov.by_source).map(function (s) {
+    return cov.by_source[s] + " from " + s;
+  }).join(", ");
+
+  var html =
+    '<div class="coverage"><strong>' + cov.interactions + ' interactions</strong> (' +
+    (cov.earliest || "?") + " to " + (cov.latest || "?") + "; " + srcBits + "). " +
+    "<strong>" + cov.contacts_with_signal + " of " + cov.contacts +
+    " contacts (" + pct + "%)</strong> have any signal. The other " +
+    cov.contacts_unmeasured + ' are <strong>unmeasured, not cold</strong> — ' +
+    "the sweep hasn't reached them (or they never emailed you at this address).</div>" +
+    '<div class="controls" id="chips"></div>' +
+    '<div class="tablewrap"><table><thead><tr>' +
+    '<th data-k="name">Name <span class="arrow"></span></th>' +
+    '<th data-k="company">Company <span class="arrow"></span></th>' +
+    '<th data-k="days">Last contact <span class="arrow"></span></th>' +
+    '<th data-k="n">Emails <span class="arrow"></span></th>' +
+    '<th data-k="bucket">Warmth <span class="arrow"></span></th>' +
+    "</tr></thead><tbody id='rows'></tbody></table></div>" +
+    "<footer>Receipts show who/when only — message content is never stored. " +
+    "Click a row with signal to see its evidence.</footer>";
+  app.innerHTML = html;
+
+  var BUCKETS = ["all", "active", "warm", "cooling", "cold", "no data", "flagged"];
+  var state = { bucket: "all", q: "", sortK: "days", sortAsc: true };
+
+  var chips = document.getElementById("chips");
+  BUCKETS.forEach(function (b) {
+    var btn = document.createElement("button");
+    btn.className = "chip";
+    btn.textContent = b === "all" ? "All (" + data.people.length + ")" : b;
+    btn.setAttribute("aria-pressed", b === state.bucket);
+    btn.onclick = function () {
+      state.bucket = b;
+      Array.prototype.forEach.call(chips.children, function (c) {
+        if (c.tagName === "BUTTON") c.setAttribute("aria-pressed", c === btn);
+      });
+      draw();
+    };
+    chips.appendChild(btn);
+  });
+  var search = document.createElement("input");
+  search.type = "search";
+  search.placeholder = "Search name or company";
+  search.oninput = function () { state.q = search.value.toLowerCase(); draw(); };
+  chips.appendChild(search);
+
+  function bucketClass(b) {
+    return { "active": "b-active", "warm": "b-warm", "cooling": "b-cooling",
+             "cold": "b-cold", "no data": "b-nodata" }[b] || "b-nodata";
+  }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  var ORDER = { "active": 0, "warm": 1, "cooling": 2, "cold": 3, "no data": 4 };
+  function draw() {
+    var rows = data.people.filter(function (p) {
+      if (state.bucket === "flagged" && !p.flag) return false;
+      if (state.bucket !== "all" && state.bucket !== "flagged" &&
+          p.bucket !== state.bucket) return false;
+      if (state.q && (p.name + " " + p.company).toLowerCase().indexOf(state.q) < 0)
+        return false;
+      return true;
+    });
+    rows.sort(function (a, b) {
+      var k = state.sortK, va, vb;
+      if (k === "days") { va = a.days == null ? 1e9 : a.days; vb = b.days == null ? 1e9 : b.days; }
+      else if (k === "n") { va = -a.n; vb = -b.n; }
+      else if (k === "bucket") { va = ORDER[a.bucket]; vb = ORDER[b.bucket]; }
+      else { va = (a[k] || "").toLowerCase(); vb = (b[k] || "").toLowerCase(); }
+      var r = va < vb ? -1 : va > vb ? 1 : 0;
+      return state.sortAsc ? r : -r;
+    });
+    var body = document.getElementById("rows");
+    body.innerHTML = rows.map(function (p) {
+      var last = p.last
+        ? esc(p.last) + ' <span class="sub">(' + p.days + "d)</span>"
+        : '<span class="sub">—</span>';
+      var nameCell = p.url
+        ? '<a href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.name) + "</a>"
+        : esc(p.name);
+      return '<tr class="person" data-id="' + p.id + '"><td class="name">' +
+        (p.flag ? '<span class="flagstar" title="flagged">★</span> ' : "") + nameCell +
+        (p.title ? ' <span class="sub">· ' + esc(p.title) + "</span>" : "") + "</td>" +
+        "<td>" + esc(p.company) + "</td>" +
+        '<td class="num">' + last + "</td>" +
+        '<td class="num">' + (p.n || '<span class="sub">—</span>') + "</td>" +
+        '<td><span class="bucket ' + bucketClass(p.bucket) + '">' + esc(p.bucket) +
+        "</span></td></tr>";
+    }).join("");
+    Array.prototype.forEach.call(body.querySelectorAll("tr.person"), function (tr) {
+      tr.onclick = function (ev) {
+        if (ev.target.tagName === "A") return;
+        var open = tr.nextElementSibling;
+        if (open && open.className === "receipts") { open.remove(); return; }
+        var items = data.receipts[tr.getAttribute("data-id")];
+        if (!items) return;
+        var d = document.createElement("tr");
+        d.className = "receipts";
+        d.innerHTML = '<td colspan="5"><ul>' + items.map(function (i) {
+          return "<li>" + esc(i.on) + " · " + esc(i.kind) + " · " + esc(i.source) +
+            (i.summary ? " · " + esc(i.summary) : "") + "</li>";
+        }).join("") + "</ul></td>";
+        tr.parentNode.insertBefore(d, tr.nextSibling);
+      };
+    });
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll("th"), function (th) {
+    th.onclick = function () {
+      var k = th.getAttribute("data-k");
+      if (state.sortK === k) state.sortAsc = !state.sortAsc;
+      else { state.sortK = k; state.sortAsc = true; }
+      Array.prototype.forEach.call(document.querySelectorAll("th .arrow"), function (a) {
+        a.textContent = "";
+      });
+      th.querySelector(".arrow").textContent = state.sortAsc ? "↑" : "↓";
+      draw();
+    };
+  });
+
+  draw();
+})();
+</script>
+</body>
+</html>

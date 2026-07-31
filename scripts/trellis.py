@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS identity_merge_meta (
     PRIMARY KEY (merge_id, connection_id)
 );
 CREATE INDEX IF NOT EXISTS idx_int_conn ON interactions(connection_id);
+CREATE INDEX IF NOT EXISTS idx_int_conn_date ON interactions(connection_id, occurred_on);
 CREATE INDEX IF NOT EXISTS idx_loop_conn ON open_loops(connection_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_int_srcref
     ON interactions(source, source_ref) WHERE source_ref IS NOT NULL;
@@ -254,6 +255,130 @@ def last_interaction(conn, cid):
 
 def meta_for(conn, cid):
     return conn.execute("SELECT * FROM person_meta WHERE connection_id=?", (cid,)).fetchone()
+
+
+# Warmth buckets — same absolute thresholds skills/email-recency.md promises
+# users. Distinct from CADENCE, which is mode-relative and drives radar only.
+WARMTH_BUCKETS = ((14, "active"), (60, "warm"), (180, "cooling"))
+
+
+def warmth_bucket(days):
+    if days is None:
+        return "no data"
+    for cutoff, name in WARMTH_BUCKETS:
+        if days <= cutoff:
+            return name
+    return "cold"
+
+
+def warmth_rows(conn):
+    """One row per live connection with their aggregate contact signal.
+
+    Read-only by design: unlike radar, this never writes suggestions, so it is
+    safe to run for display as often as anyone likes.
+    """
+    rows = []
+    for r in conn.execute("""
+        SELECT c.id, c.full_name, c.company, c.title, c.email, c.url,
+               m.priority, m.mode, agg.last_on, agg.n, agg.last_id
+        FROM connections c
+        LEFT JOIN person_meta m ON m.connection_id = c.id
+        LEFT JOIN (SELECT connection_id, MAX(occurred_on) AS last_on,
+                          COUNT(*) AS n, MAX(id) AS last_id
+                   FROM interactions GROUP BY connection_id) agg
+               ON agg.connection_id = c.id
+        WHERE c.source NOT LIKE 'merged_into_%'"""):
+        ds = days_since(r["last_on"])
+        rows.append({
+            "id": r["id"], "name": r["full_name"], "company": r["company"],
+            "title": r["title"], "email": r["email"], "url": r["url"],
+            "flagged": (r["priority"] or "normal") in ("important", "critical"),
+            "mode": r["mode"],
+            "last_contact": r["last_on"], "days_since": ds,
+            "interactions": r["n"] or 0,
+            "bucket": warmth_bucket(ds),
+            "direction": None,
+        })
+    # Direction lives in the newest interaction's summary ("email sent" /
+    # "email received"); older ingests wrote "email exchanged", which has none.
+    # Match on the newest DATE, not the highest row id — paged sweeps ingest
+    # older messages after newer ones, so id order isn't chronological.
+    by_id = {p["id"]: p for p in rows if p["interactions"]}
+    if by_id:
+        for r in conn.execute("""
+            SELECT i.connection_id AS cid, i.summary FROM interactions i
+            JOIN (SELECT connection_id, MAX(occurred_on) AS lo
+                  FROM interactions GROUP BY connection_id) x
+              ON x.connection_id = i.connection_id AND i.occurred_on = x.lo
+            ORDER BY i.id"""):
+            summary = (r["summary"] or "").lower()
+            if r["cid"] in by_id:
+                if "sent" in summary:
+                    by_id[r["cid"]]["direction"] = "sent"
+                elif "received" in summary:
+                    by_id[r["cid"]]["direction"] = "received"
+    return rows
+
+
+def warmth_coverage(conn, rows):
+    span = conn.execute(
+        "SELECT COUNT(*) AS n, MIN(occurred_on) AS lo, MAX(occurred_on) AS hi FROM interactions"
+    ).fetchone()
+    sources = {r["source"] or "unknown": r["n"] for r in conn.execute(
+        "SELECT source, COUNT(*) AS n FROM interactions GROUP BY source")}
+    measured = sum(1 for p in rows if p["interactions"])
+    return {
+        "contacts": len(rows),
+        "contacts_with_signal": measured,
+        "contacts_unmeasured": len(rows) - measured,
+        "interactions": span["n"],
+        "earliest": span["lo"], "latest": span["hi"],
+        "by_source": sources,
+    }
+
+
+def cmd_warmth(conn, a):
+    rows = warmth_rows(conn)
+    cov = warmth_coverage(conn, rows)
+
+    if a.name:
+        needle = a.name.lower()
+        rows = [p for p in rows if needle in (p["name"] or "").lower()
+                or needle in (p["company"] or "").lower()
+                or needle in (p["email"] or "").lower()]
+    if a.bucket:
+        rows = [p for p in rows if p["bucket"] == a.bucket]
+
+    # Warmest first: measured people by recency, then the unmeasured tail.
+    rows.sort(key=lambda p: (p["days_since"] is None,
+                             p["days_since"] if p["days_since"] is not None else 0),
+              reverse=a.stalest)
+    if not a.stalest:
+        rows.sort(key=lambda p: (p["days_since"] is None,
+                                 p["days_since"] if p["days_since"] is not None else 10**6))
+
+    if a.json:
+        print(json.dumps({"coverage": cov, "results": rows[:a.limit] if a.limit else rows},
+                         indent=2, default=str))
+        return
+
+    print(f"Coverage: {cov['interactions']} interactions "
+          f"({cov['earliest'] or '—'} to {cov['latest'] or '—'}), "
+          f"{cov['contacts_with_signal']} of {cov['contacts']} contacts have any signal.")
+    if cov["interactions"] == 0:
+        print("No contact data yet. Run the Gmail sweep (or capture interactions) first.")
+        return
+    for p in rows[:a.limit or 25]:
+        if p["interactions"]:
+            direction = f", they wrote last" if p["direction"] == "received" else \
+                        (", you wrote last" if p["direction"] == "sent" else "")
+            print(f"{p['name']}: {p['bucket']} — last contact {p['last_contact']} "
+                  f"({p['days_since']}d ago{direction}); {p['interactions']} interaction(s)"
+                  + ("  [flagged]" if p["flagged"] else ""))
+        else:
+            print(f"{p['name']}: no data (unmeasured, not cold)"
+                  + ("  [flagged]" if p["flagged"] else ""))
+    print("\n'No data' means not seen in what's been swept so far — not 'cold'.")
 
 
 def label(p):
@@ -809,6 +934,13 @@ def main():
     rad = sub.add_parser("radar", help="reason-lined reach-out suggestions")
     rad.add_argument("--limit", type=int, default=5)
 
+    wrm = sub.add_parser("warmth", help="who's warm, who's cold, who's unmeasured")
+    wrm.add_argument("--name", help="filter to a person / company / email fragment")
+    wrm.add_argument("--bucket", choices=["active", "warm", "cooling", "cold", "no data"])
+    wrm.add_argument("--stalest", action="store_true", help="stalest first instead of warmest")
+    wrm.add_argument("--limit", type=int, default=0, help="0 = all (human mode caps at 25)")
+    wrm.add_argument("--json", action="store_true")
+
     ctx = sub.add_parser("context", help="allowed context pack for drafting")
     ctx.add_argument("--name"); ctx.add_argument("--email"); ctx.add_argument("--url")
 
@@ -831,7 +963,7 @@ def main():
     {"capture": cmd_capture, "ingest": cmd_ingest, "recall": cmd_recall,
      "loops": cmd_loops, "radar": cmd_radar, "context": cmd_context,
      "dupes": cmd_dupes, "merge": cmd_merge, "merges": cmd_merges,
-     "unmerge": cmd_unmerge, "apply": cmd_apply}[a.cmd](conn, a)
+     "unmerge": cmd_unmerge, "apply": cmd_apply, "warmth": cmd_warmth}[a.cmd](conn, a)
     conn.close()
 
 

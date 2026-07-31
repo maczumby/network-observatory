@@ -151,7 +151,14 @@ reaching out to. Every answer cites where it came from, it drafts only from real
 python3 scripts/trellis.py recall "Maya"     # who is she, our history, open loops
 python3 scripts/trellis.py loops             # who you left hanging
 python3 scripts/trellis.py radar             # a few reach-outs worth making, with reasons
+python3 scripts/trellis.py warmth            # who's warm, who's going cold, what's unmeasured
 ```
+
+Once email or calendar events flow in, `python3 scripts/warmth_export.py` bakes
+a browsable table (`dashboard/warmth.html`, same password as the map): every
+contact's last-contact date, who wrote last, a temperature label, and the
+receipts behind each row. It leads with coverage — how much of your graph is
+actually measured — and shows unmeasured people as "no data", never "cold".
 
 It works from your LinkedIn graph and what you tell it, and gets richer if your agent
 feeds it meetings, email, or calendar. Trellis stores no connector tokens and keeps its
