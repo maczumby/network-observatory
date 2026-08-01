@@ -37,6 +37,8 @@ python3 scripts/trellis.py context --name "Maya Chen"
 
 # housekeeping
 python3 scripts/trellis.py dupes            # possible duplicate people to confirm
+python3 scripts/trellis.py match            # tie email/calendar contacts to LinkedIn (proposals only)
+python3 scripts/trellis.py mute --name X    # hide a newsletter/system sender (reversible: unmute)
 python3 scripts/trellis.py merges           # audit active and undone identity merges
 python3 scripts/trellis.py unmerge --merge-id 3
 ```

@@ -86,7 +86,24 @@ require this again after seven days.
 Call `network_observatory_sweep_email_metadata` with at most 25 messages per
 page. Follow `nextPageToken` only as far as the user's question requires.
 
-For every message:
+**Hygiene first — a CRM full of newsletters is worse than no CRM.** Before
+creating anything from a message:
+
+- Skip the whole message when its `labelIds` include `CATEGORY_PROMOTIONS`,
+  `CATEGORY_UPDATES`, or `CATEGORY_FORUMS`, unless the correspondent already
+  exists as a contact.
+- Skip correspondents whose address local part is a system sender: no-reply,
+  noreply, donotreply, notifications, notify, updates, newsletter, digest,
+  alerts, billing, invoice, receipts, info, admin, hello, team, support,
+  mailer-daemon, postmaster, and the like.
+- Skip display names that are not person-shaped: single generic words
+  ("Push", "Subscribed", "finance"), product names, anything of the form
+  "'X' via system-address".
+- When you genuinely can't tell, ask the user with the evidence ("mail from
+  'GDI Nova <nova@gdi.earth>' — is that a person you know?") instead of
+  minting a contact.
+
+For every message that survives:
 
 1. Parse addresses from the allowed headers.
 2. Exclude the user's own addresses.
@@ -103,6 +120,21 @@ fields. Re-runs are idempotent because the source reference is stable.
 
 Say when a sweep is partial. A remaining `nextPageToken`, failed page, or failed
 message means absence and staleness are not proven.
+
+**After every sweep, reconcile identities.** Run:
+
+```bash
+python3 scripts/trellis.py match
+```
+
+It proposes LinkedIn identities for contacts created from sweeps ("brock
+<brock@filament.dm> -> Brock Kelly, because email matches their name").
+Present each proposal to the user in plain language and merge ONLY the ones
+they confirm, with the exact command it prints. Merges are reversible
+(`merges` / `unmerge`), and nothing is ever merged automatically. Then offer a
+cleanup pass: list any surviving contacts that don't look like people and, on
+the user's yes, hide each with `python3 scripts/trellis.py mute --name "..."`
+(reversible with `unmute`).
 
 ## Show the warmth table after enriching
 
@@ -130,9 +162,50 @@ whenever the sweep has not reached the end of the mailbox.
 ## Ingest other optional sources
 
 Normalize Calendar or meeting events to Trellis only when the user's agent
-already has those tools. Store who, when, event kind, and a minimal source
-label. Do not make Gmail or Calendar prerequisites for recall, loops, radar, or
-the map.
+already has those tools. Do not make Gmail or Calendar prerequisites for
+recall, loops, radar, warmth, or the map — everything works from LinkedIn
+alone and gets richer with each optional source.
+
+For calendar events specifically:
+
+1. One Trellis event per external attendee who accepted (or organized), kind
+   `meeting`, summary just `meeting held`, source `calendar`, source_ref
+   `<event-id>:<attendee-email>`. Never store the event title, description,
+   or location — same who/when-only rule as email.
+2. Skip events with more than ~10 attendees (webinars and all-hands are not
+   relationships), recurring-event instances beyond the most recent one, and
+   attendees matching the system-sender hygiene rules above.
+3. Only create a NEW contact from an attendee when the user confirms it's a
+   person worth tracking; attendees matching existing contacts ingest freely.
+4. Meetings count toward warmth automatically — a meeting last week makes a
+   contact `active` exactly like an email would.
+
+## Answering questions with the graph
+
+These are the flows the owner will actually ask for. Compose them from the
+pieces rather than improvising:
+
+- **"Who do I know who can do X?" / "Could I get an intro to Y?"** Find
+  candidates in the connections table (title, func, company), then check
+  `python3 scripts/trellis.py warmth --name "<each>"` for the top few. Answer
+  with who they are, how warm the tie is, who wrote last, and the receipts.
+  Offer to log a follow-up loop for anyone the user wants to act on.
+- **"Who should I follow up with?"** `python3 scripts/trellis.py loops
+  --overdue` plus `radar`. Read the reason lines back; if radar is quiet, say
+  so.
+- **"Remind me to follow up with Jay in two weeks."**
+  `python3 scripts/trellis.py capture --name "Jay Sullivan" --loop "follow up"
+  --due <YYYY-MM-DD>`. It surfaces in loops and radar when due. Calendar
+  scheduling is out of scope; the loop system is the reminder.
+- **"How warm is my connection with Tony?"** `warmth --name "Tony"`, with the
+  coverage caveat when the sweep is partial.
+
+## Keeping the graph fresh
+
+The user can re-run their LinkedIn export any time; re-importing is idempotent
+and never touches Trellis memory. After a re-import, run `match` again —
+previously unmatched email and calendar contacts may now have LinkedIn rows to
+tie to.
 
 ## Resolve identities safely
 

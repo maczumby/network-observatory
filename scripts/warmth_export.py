@@ -54,12 +54,13 @@ def build_payload(db_path):
         conn.close()
         return {"people": [], "receipts": {}, "coverage": {
             "contacts": total, "contacts_with_signal": 0,
-            "contacts_unmeasured": total, "interactions": 0,
+            "contacts_unmeasured": total, "muted_hidden": 0, "interactions": 0,
             "earliest": None, "latest": None, "by_source": {}}}
 
     people = []
+    muted = 0
     for r in conn.execute("""
-        SELECT c.id, c.full_name, c.company, c.title, c.email, c.url,
+        SELECT c.id, c.full_name, c.company, c.title, c.email, c.url, c.source,
                m.priority, agg.last_on, agg.n
         FROM connections c
         LEFT JOIN person_meta m ON m.connection_id = c.id
@@ -67,11 +68,15 @@ def build_payload(db_path):
                    FROM interactions GROUP BY connection_id) agg
                ON agg.connection_id = c.id
         WHERE c.source NOT LIKE 'merged_into_%'"""):
+        if (r["priority"] or "normal") == "muted":
+            muted += 1
+            continue
         ds = days_since(r["last_on"])
         people.append({
             "id": r["id"], "name": r["full_name"] or "(unnamed)",
             "company": r["company"] or "", "title": r["title"] or "",
             "url": r["url"] or "",
+            "origin": r["source"] or "manual",
             "flag": 1 if (r["priority"] or "normal") in ("important", "critical") else 0,
             "last": r["last_on"], "days": ds,
             "n": r["n"] or 0, "bucket": warmth_bucket(ds),
@@ -104,6 +109,7 @@ def build_payload(db_path):
             "contacts": len(people),
             "contacts_with_signal": measured,
             "contacts_unmeasured": len(people) - measured,
+            "muted_hidden": muted,
             "interactions": span["n"],
             "earliest": span["lo"], "latest": span["hi"],
             "by_source": by_source,

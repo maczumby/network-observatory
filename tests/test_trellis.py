@@ -176,3 +176,53 @@ class TrellisTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WarmthAndMatchTest(TrellisTestCase):
+    def _ingest(self, name, email, source="gmail"):
+        trellis._ingest_one(self.conn, {
+            "person": {"name": name, "email": email},
+            "kind": "email", "date": "2026-07-20",
+            "summary": "email received", "source": source,
+            "source_ref": f"{name}:{email}",
+        })
+        self.conn.commit()
+
+    def test_ingest_sets_origin_from_event_source(self):
+        self._ingest("brock", "brock@filament.dm")
+        row = self.conn.execute(
+            "SELECT source FROM connections WHERE full_name='brock'").fetchone()
+        self.assertEqual(row["source"], "gmail")
+
+    def test_match_proposes_by_email_localpart_and_never_merges(self):
+        self.add_person("Brock Kelly", source="linkedin")
+        self._ingest("brock", "brock@filament.dm")
+        proposals = trellis._match_candidates(self.conn)
+        self.assertTrue(any(
+            p["stray_name"] == "brock" and p["linkedin_name"] == "Brock Kelly"
+            for p in proposals))
+        merges = self.conn.execute("SELECT COUNT(*) FROM identity_merges").fetchone()[0]
+        self.assertEqual(merges, 0)
+
+    def test_match_proposes_fuzzy_names_without_company(self):
+        self.add_person("Jay Sullivan", source="linkedin")
+        self._ingest("Jay Sullvan", "jay@ex.co")  # typo'd sweep name, no company
+        proposals = trellis._match_candidates(self.conn)
+        self.assertTrue(any(p["linkedin_name"] == "Jay Sullivan" for p in proposals))
+
+    def test_mute_hides_from_warmth_default(self):
+        self._ingest("Subscribed", "updates@service.example")
+        args = argparse.Namespace(name="Subscribed", id=None)
+        with contextlib.redirect_stdout(io.StringIO()):
+            trellis.cmd_mute(self.conn, args)
+        names = [p["name"] for p in trellis.warmth_rows(self.conn)]
+        self.assertNotIn("Subscribed", names)
+        names_all = [p["name"] for p in trellis.warmth_rows(self.conn, include_muted=True)]
+        self.assertIn("Subscribed", names_all)
+
+    def test_warmth_rows_carry_origin(self):
+        self.add_person("Ana Linked", source="linkedin")
+        self._ingest("Eve Mailer", "eve@ex.co")
+        by_name = {p["name"]: p for p in trellis.warmth_rows(self.conn)}
+        self.assertEqual(by_name["Ana Linked"]["origin"], "linkedin")
+        self.assertEqual(by_name["Eve Mailer"]["origin"], "gmail")

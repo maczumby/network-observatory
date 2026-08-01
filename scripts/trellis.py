@@ -195,7 +195,7 @@ def find_person(conn, name=None, email=None, url=None):
 
 
 def find_or_create_person(conn, name=None, email=None, url=None,
-                          company=None, title=None):
+                          company=None, title=None, origin="manual"):
     existing = find_person(conn, name=name, email=email, url=url)
     if existing:
         # fill in any newly-supplied blanks without clobbering existing data
@@ -224,7 +224,7 @@ def find_or_create_person(conn, name=None, email=None, url=None,
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (_natural_key(url, name, company), first, last, name, url or "", email or "",
          company or "", title or "", infer_func(title or "", founder),
-         1 if founder else 0, infer_rank(title or ""), "manual", now(), now()))
+         1 if founder else 0, infer_rank(title or ""), origin or "manual", now(), now()))
     conn.commit()
     return cur.lastrowid
 
@@ -271,15 +271,16 @@ def warmth_bucket(days):
     return "cold"
 
 
-def warmth_rows(conn):
+def warmth_rows(conn, include_muted=False):
     """One row per live connection with their aggregate contact signal.
 
     Read-only by design: unlike radar, this never writes suggestions, so it is
-    safe to run for display as often as anyone likes.
+    safe to run for display as often as anyone likes. Muted contacts (bulk
+    senders, not-a-person addresses) are hidden unless explicitly asked for.
     """
     rows = []
     for r in conn.execute("""
-        SELECT c.id, c.full_name, c.company, c.title, c.email, c.url,
+        SELECT c.id, c.full_name, c.company, c.title, c.email, c.url, c.source,
                m.priority, m.mode, agg.last_on, agg.n, agg.last_id
         FROM connections c
         LEFT JOIN person_meta m ON m.connection_id = c.id
@@ -288,11 +289,15 @@ def warmth_rows(conn):
                    FROM interactions GROUP BY connection_id) agg
                ON agg.connection_id = c.id
         WHERE c.source NOT LIKE 'merged_into_%'"""):
+        if not include_muted and (r["priority"] or "normal") == "muted":
+            continue
         ds = days_since(r["last_on"])
         rows.append({
             "id": r["id"], "name": r["full_name"], "company": r["company"],
             "title": r["title"], "email": r["email"], "url": r["url"],
+            "origin": r["source"] or "manual",
             "flagged": (r["priority"] or "normal") in ("important", "critical"),
+            "muted": (r["priority"] or "normal") == "muted",
             "mode": r["mode"],
             "last_contact": r["last_on"], "days_since": ds,
             "interactions": r["n"] or 0,
@@ -337,8 +342,121 @@ def warmth_coverage(conn, rows):
     }
 
 
+def _resolve_target(conn, a):
+    """Resolve --name/--id to exactly one live connection row or exit loudly."""
+    if getattr(a, "id", None):
+        row = conn.execute(
+            "SELECT * FROM connections WHERE id=? AND source NOT LIKE 'merged_into_%'",
+            (a.id,)).fetchone()
+        if not row:
+            raise SystemExit(f"No connection with id {a.id}.")
+        return row
+    if not a.name:
+        raise SystemExit("Pass --name (or --id).")
+    rows = conn.execute(
+        "SELECT * FROM connections WHERE lower(full_name)=? AND source NOT LIKE 'merged_into_%'",
+        (a.name.lower(),)).fetchall()
+    if len(rows) == 1:
+        return rows[0]
+    if not rows:
+        raise SystemExit(f"No one named '{a.name}'. Try: trellis.py recall \"{a.name}\"")
+    ids = ", ".join(str(r["id"]) for r in rows)
+    raise SystemExit(f"'{a.name}' matches {len(rows)} people (ids {ids}) — use --id.")
+
+
+def cmd_mute(conn, a):
+    row = _resolve_target(conn, a)
+    conn.execute(
+        """INSERT INTO person_meta (connection_id, priority, updated_at) VALUES (?, 'muted', ?)
+           ON CONFLICT(connection_id) DO UPDATE SET priority='muted', updated_at=excluded.updated_at""",
+        (row["id"], now()))
+    conn.commit()
+    print(f"Muted {row['full_name']} (id {row['id']}). Hidden from warmth and radar; "
+          f"unmute any time: trellis.py unmute --id {row['id']}")
+
+
+def cmd_unmute(conn, a):
+    row = _resolve_target(conn, a)
+    conn.execute(
+        """INSERT INTO person_meta (connection_id, priority, updated_at) VALUES (?, 'normal', ?)
+           ON CONFLICT(connection_id) DO UPDATE SET priority='normal', updated_at=excluded.updated_at""",
+        (row["id"], now()))
+    conn.commit()
+    print(f"Unmuted {row['full_name']} (id {row['id']}).")
+
+
+def _match_candidates(conn):
+    """Propose LinkedIn identities for email-/calendar-created contacts.
+
+    Cross-origin only: cmd_dupes needs a shared company to fuzzy-match, and
+    contacts minted from a sweep have none, so 'brock' never meets
+    'Brock Kelly' there. Proposals only — merging stays human-confirmed.
+    """
+    linkedin = conn.execute(
+        "SELECT * FROM connections WHERE source='linkedin'").fetchall()
+    strays = conn.execute("""
+        SELECT c.* FROM connections c
+        JOIN (SELECT DISTINCT connection_id FROM interactions) i ON i.connection_id = c.id
+        WHERE c.source NOT IN ('linkedin') AND c.source NOT LIKE 'merged_into_%'""").fetchall()
+
+    by_first = {}
+    for p in linkedin:
+        by_first.setdefault(_norm(p["first_name"]), []).append(p)
+
+    proposals = []
+    for s in strays:
+        sname = _norm(s["full_name"])
+        local = (s["email"] or "").split("@")[0].lower()
+        best = []
+        for p in linkedin:
+            pname = _norm(p["full_name"])
+            reasons = []
+            sim = SequenceMatcher(None, sname, pname).ratio()
+            if sim >= 0.82 and sname != "":
+                reasons.append(f"names {int(sim * 100)}% similar")
+            compact = _norm(p["first_name"]) + _norm(p["last_name"])
+            dotted = f"{_norm(p['first_name'])}.{_norm(p['last_name'])}"
+            if local and local in (compact, dotted,
+                                   _norm(p["first_name"]), _norm(p["last_name"])):
+                reasons.append(f"email '{local}@…' matches their name")
+            if reasons:
+                best.append((p, "; ".join(reasons)))
+        if not best and " " not in (s["full_name"] or "").strip():
+            firsts = by_first.get(sname, [])
+            if len(firsts) == 1:
+                best.append((firsts[0], "only LinkedIn contact with that first name"))
+        for p, why in best[:3]:
+            proposals.append({
+                "stray_id": s["id"], "stray_name": s["full_name"],
+                "stray_email": s["email"] or "",
+                "linkedin_id": p["id"], "linkedin_name": p["full_name"],
+                "linkedin_company": p["company"] or "",
+                "why": why,
+                "merge_command": f"trellis.py merge --from {s['id']} --into {p['id']}",
+            })
+    return proposals
+
+
+def cmd_match(conn, a):
+    proposals = _match_candidates(conn)
+    if a.json:
+        print(json.dumps(proposals, indent=2))
+        return
+    if not proposals:
+        print("No LinkedIn matches to propose for email/calendar contacts.")
+        return
+    print(f"{len(proposals)} proposal(s). Nothing is merged automatically; "
+          "confirm each with the command shown (reversible via unmerge):\n")
+    for pr in proposals:
+        email = f" <{pr['stray_email']}>" if pr["stray_email"] else ""
+        company = f" ({pr['linkedin_company']})" if pr["linkedin_company"] else ""
+        print(f"  {pr['stray_name']}{email}  ->  {pr['linkedin_name']}{company}")
+        print(f"      because: {pr['why']}")
+        print(f"      to confirm: {pr['merge_command']}\n")
+
+
 def cmd_warmth(conn, a):
-    rows = warmth_rows(conn)
+    rows = warmth_rows(conn, include_muted=getattr(a, "include_muted", False))
     cov = warmth_coverage(conn, rows)
 
     if a.name:
@@ -369,15 +487,15 @@ def cmd_warmth(conn, a):
         print("No contact data yet. Run the Gmail sweep (or capture interactions) first.")
         return
     for p in rows[:a.limit or 25]:
+        tags = ("  [flagged]" if p["flagged"] else "") + \
+               ("  [email only — not yet tied to LinkedIn]" if p["origin"] not in ("linkedin",) and p["interactions"] else "")
         if p["interactions"]:
             direction = f", they wrote last" if p["direction"] == "received" else \
                         (", you wrote last" if p["direction"] == "sent" else "")
             print(f"{p['name']}: {p['bucket']} — last contact {p['last_contact']} "
-                  f"({p['days_since']}d ago{direction}); {p['interactions']} interaction(s)"
-                  + ("  [flagged]" if p["flagged"] else ""))
+                  f"({p['days_since']}d ago{direction}); {p['interactions']} interaction(s)" + tags)
         else:
-            print(f"{p['name']}: no data (unmeasured, not cold)"
-                  + ("  [flagged]" if p["flagged"] else ""))
+            print(f"{p['name']}: no data (unmeasured, not cold)" + tags)
     print("\n'No data' means not seen in what's been swept so far — not 'cold'.")
 
 
@@ -436,7 +554,7 @@ def _ingest_one(conn, ev):
     cid = find_or_create_person(
         conn, name=person.get("name"), email=person.get("email"),
         url=person.get("url"), company=person.get("company"),
-        title=person.get("title"))
+        title=person.get("title"), origin=ev.get("source") or "manual")
     src, ref = ev.get("source", "agent"), ev.get("source_ref")
     if ref:  # idempotent: skip if this exact event is already stored
         dup = conn.execute("SELECT 1 FROM interactions WHERE source=? AND source_ref=?",
@@ -939,7 +1057,17 @@ def main():
     wrm.add_argument("--bucket", choices=["active", "warm", "cooling", "cold", "no data"])
     wrm.add_argument("--stalest", action="store_true", help="stalest first instead of warmest")
     wrm.add_argument("--limit", type=int, default=0, help="0 = all (human mode caps at 25)")
+    wrm.add_argument("--include-muted", dest="include_muted", action="store_true")
     wrm.add_argument("--json", action="store_true")
+
+    mut = sub.add_parser("mute", help="hide a non-person sender from warmth and radar")
+    mut.add_argument("--name"); mut.add_argument("--id", type=int)
+
+    unmut = sub.add_parser("unmute", help="bring a muted contact back")
+    unmut.add_argument("--name"); unmut.add_argument("--id", type=int)
+
+    mtc = sub.add_parser("match", help="propose LinkedIn identities for email/calendar contacts")
+    mtc.add_argument("--json", action="store_true")
 
     ctx = sub.add_parser("context", help="allowed context pack for drafting")
     ctx.add_argument("--name"); ctx.add_argument("--email"); ctx.add_argument("--url")
@@ -963,7 +1091,8 @@ def main():
     {"capture": cmd_capture, "ingest": cmd_ingest, "recall": cmd_recall,
      "loops": cmd_loops, "radar": cmd_radar, "context": cmd_context,
      "dupes": cmd_dupes, "merge": cmd_merge, "merges": cmd_merges,
-     "unmerge": cmd_unmerge, "apply": cmd_apply, "warmth": cmd_warmth}[a.cmd](conn, a)
+     "unmerge": cmd_unmerge, "apply": cmd_apply, "warmth": cmd_warmth,
+     "mute": cmd_mute, "unmute": cmd_unmute, "match": cmd_match}[a.cmd](conn, a)
     conn.close()
 
 

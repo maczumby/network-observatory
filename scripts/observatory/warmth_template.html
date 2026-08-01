@@ -117,7 +117,10 @@ window.WARMTH = __WARMTH_DATA__;
     "<strong>" + cov.contacts_with_signal + " of " + cov.contacts +
     " contacts (" + pct + "%)</strong> have any signal. The other " +
     cov.contacts_unmeasured + ' are <strong>unmeasured, not cold</strong> — ' +
-    "the sweep hasn't reached them (or they never emailed you at this address).</div>" +
+    "the sweep hasn't reached them (or they never emailed you at this address)." +
+    (cov.muted_hidden ? " " + cov.muted_hidden +
+      " muted sender" + (cov.muted_hidden === 1 ? "" : "s") +
+      " (newsletters, notifications) are hidden." : "") + "</div>" +
     '<div class="controls" id="chips"></div>' +
     '<div class="tablewrap"><table><thead><tr>' +
     '<th data-k="name">Name <span class="arrow"></span></th>' +
@@ -130,7 +133,7 @@ window.WARMTH = __WARMTH_DATA__;
     "Click a row with signal to see its evidence.</footer>";
   app.innerHTML = html;
 
-  var BUCKETS = ["all", "active", "warm", "cooling", "cold", "no data", "flagged"];
+  var BUCKETS = ["all", "active", "warm", "cooling", "cold", "no data", "flagged", "email-only"];
   var state = { bucket: "all", q: "", sortK: "days", sortAsc: true };
 
   var chips = document.getElementById("chips");
@@ -168,8 +171,10 @@ window.WARMTH = __WARMTH_DATA__;
   function draw() {
     var rows = data.people.filter(function (p) {
       if (state.bucket === "flagged" && !p.flag) return false;
+      if (state.bucket === "email-only" &&
+          (p.origin === "linkedin" || !p.n)) return false;
       if (state.bucket !== "all" && state.bucket !== "flagged" &&
-          p.bucket !== state.bucket) return false;
+          state.bucket !== "email-only" && p.bucket !== state.bucket) return false;
       if (state.q && (p.name + " " + p.company).toLowerCase().indexOf(state.q) < 0)
         return false;
       return true;
@@ -191,9 +196,12 @@ window.WARMTH = __WARMTH_DATA__;
       var nameCell = p.url
         ? '<a href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.name) + "</a>"
         : esc(p.name);
+      var originTag = (p.origin !== "linkedin" && p.n)
+        ? ' <span class="sub" title="Created from a sweep; not yet tied to a LinkedIn connection">· email only</span>'
+        : "";
       return '<tr class="person" data-id="' + p.id + '"><td class="name">' +
         (p.flag ? '<span class="flagstar" title="flagged">★</span> ' : "") + nameCell +
-        (p.title ? ' <span class="sub">· ' + esc(p.title) + "</span>" : "") + "</td>" +
+        (p.title ? ' <span class="sub">· ' + esc(p.title) + "</span>" : "") + originTag + "</td>" +
         "<td>" + esc(p.company) + "</td>" +
         '<td class="num">' + last + "</td>" +
         '<td class="num">' + (p.n || '<span class="sub">—</span>') + "</td>" +
