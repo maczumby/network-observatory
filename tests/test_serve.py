@@ -16,6 +16,17 @@ from http.server import ThreadingHTTPServer
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 MAP_MARKER = "WINDOW-OBS-DATA-SENTINEL"
+TEMPLATE = os.path.join(os.path.dirname(__file__), "..", "scripts",
+                        "observatory", "warmth_template.html")
+
+
+class WarmthTemplateTest(unittest.TestCase):
+    def test_rows_are_deep_linkable(self):
+        with open(TEMPLATE, encoding="utf-8") as f:
+            tpl = f.read()
+        self.assertIn('id="p\' + p.id', tpl)      # per-person anchors
+        self.assertIn("hashchange", tpl)          # #p<id> handler wired
+        self.assertIn("scrollIntoView", tpl)
 
 
 class ServeAuthTest(unittest.TestCase):

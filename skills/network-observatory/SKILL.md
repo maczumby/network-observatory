@@ -180,6 +180,39 @@ For calendar events specifically:
 4. Meetings count toward warmth automatically — a meeting last week makes a
    contact `active` exactly like an email would.
 
+## How to talk about the graph
+
+Every user-facing reply follows these rules. They are the product; the
+commands are plumbing.
+
+- Lead with the answer in one plain sentence. At most 3 people per answer
+  unless the user asks for more.
+- Hyperlink every person you name to their LinkedIn URL when one exists, as
+  a markdown link. When you cite email or meeting history, link the warmth
+  table too — `<table-url>#p<id>` jumps straight to that person's receipts.
+  Get ids and urls from `warmth --json`.
+- Every warmth word carries its date: "warm — they wrote to you on
+  2026-07-09 (22 days ago)". Never a bucket label without the date behind it.
+- Plain words only. Words the user must never see: MCP, endpoint, sweep,
+  ingest, source_ref, JSON, tool names, command lines. Say "your email
+  history", "who wrote last", "your map".
+- Source-state phrasing — one line, only when it changes the answer, and
+  never twice in one conversation:
+  - LinkedIn only: "That's from your LinkedIn map. Connect Gmail and I can
+    tell you how warm these ties actually are."
+  - Gmail connected: answer with recency; when coverage is partial, say what
+    the data does and doesn't reach.
+  - Calendar connected: meetings just count; don't mention calendar unless
+    asked.
+  - A missing source is never an error. It shrinks the answer, not the
+    experience.
+- End a substantive answer with at most ONE offer — log a follow-up, open
+  the table, or go deeper — not a menu of options.
+- When setup finishes (map built, or Gmail connected), teach by example:
+  offer exactly three starter questions — "Who have I gone cold on?",
+  "Who do I know at <a real company from their map>?", and "Remind me to
+  follow up with someone."
+
 ## Answering questions with the graph
 
 These are the flows the owner will actually ask for. Compose them from the

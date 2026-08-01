@@ -199,7 +199,7 @@ window.WARMTH = __WARMTH_DATA__;
       var originTag = (p.origin !== "linkedin" && p.n)
         ? ' <span class="sub" title="Created from a sweep; not yet tied to a LinkedIn connection">· email only</span>'
         : "";
-      return '<tr class="person" data-id="' + p.id + '"><td class="name">' +
+      return '<tr class="person" id="p' + p.id + '" data-id="' + p.id + '"><td class="name">' +
         (p.flag ? '<span class="flagstar" title="flagged">★</span> ' : "") + nameCell +
         (p.title ? ' <span class="sub">· ' + esc(p.title) + "</span>" : "") + originTag + "</td>" +
         "<td>" + esc(p.company) + "</td>" +
@@ -240,6 +240,31 @@ window.WARMTH = __WARMTH_DATA__;
   });
 
   draw();
+
+  // Deep links: <url>#p<id> shows that person and opens their receipts, so
+  // chat answers can point straight at the evidence.
+  function openHash() {
+    var m = (location.hash || "").match(/^#p(\d+)$/);
+    if (!m) return;
+    state.bucket = "all";
+    state.q = "";
+    search.value = "";
+    Array.prototype.forEach.call(chips.children, function (c) {
+      if (c.tagName === "BUTTON") {
+        c.setAttribute("aria-pressed", c.textContent.indexOf("All") === 0);
+      }
+    });
+    draw();
+    var row = document.getElementById("p" + m[1]);
+    if (!row) return;
+    row.scrollIntoView({ block: "center" });
+    if (data.receipts[m[1]] &&
+        !(row.nextElementSibling && row.nextElementSibling.className === "receipts")) {
+      row.click();
+    }
+  }
+  window.addEventListener("hashchange", openHash);
+  openHash();
 })();
 </script>
 </body>
