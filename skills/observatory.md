@@ -53,7 +53,8 @@ can't just double-click it, so hand them a link instead. In order:
 4. **Send a hyperlink,** `[Open Network Observatory](<url>/observatory.html)`, not
    the raw URL.
 5. **Offer a password** — the link is public until you add one:
-   `python3 scripts/serve.py --password "<user>:<pass>"`.
+   `python3 scripts/serve.py --set-password "<pass>"`. Set once; restarts stay
+   locked, and visitors get a login page instead of a browser popup.
 6. **Optionally** set up community querying with `network-answers.md`.
 
 The full gated sequence, with checkpoints, is in `CLAUDE.md`.

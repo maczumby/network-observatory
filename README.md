@@ -95,8 +95,17 @@ machine? The agent can't open a browser on your screen, so instead of `--open` i
 serves the map (`scripts/serve.py`) and exposes it on a public link it verifies
 works before sending — you get a clickable "Open Network Observatory" link, not a
 file to wrangle. That link is public until you add a password (the agent offers
-one). If you'd rather not expose a link at all, it can still just hand you the
-self-contained `observatory.html` file to open locally.
+one). The lock is a real login page: paste works, password managers work, no
+browser popup, and once set it survives server restarts. The password is stored
+only as a salted hash on the machine serving the map; nothing secret appears in
+the page source. If you'd rather not expose a link at all, it can still just
+hand you the self-contained `observatory.html` file to open locally.
+
+Why not "Sign in with Google"? Google requires the exact login-return URL to be
+registered ahead of time, and hosted-agent public URLs rotate per instance, so
+a Google button would break every time the link changes. If these pages ever
+get a stable domain, the operator's existing Google Cloud project can supply
+the OAuth client and this becomes worth revisiting.
 
 ## Getting your LinkedIn export
 

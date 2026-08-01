@@ -73,14 +73,19 @@ seniority are *inferred from job titles*, not stated facts.
 
 ### Step 3 — Offer a password (optional)
 
-Ask if they want to lock the link. If **yes**, restart the server with a password
-and re-verify:
+Ask if they want to lock the link. If **yes**, set the password once and restart
+the server — after that, every restart stays locked with no flags:
 ```bash
-python3 scripts/serve.py --password "<user>:<pass>"
-curl -sS -o /dev/null -w "%{http_code}\n" -u "<user>:<pass>" "<url>/observatory.html"   # expect 200; without -u, 401
+python3 scripts/serve.py --set-password "<pass>"
 ```
-Give them the username and password **privately** (backchannel or DM), never in a
-shared channel.
+Visitors get a normal login page (paste and password managers work; no browser
+popup, no username). Verify the lock before sending the link:
+```bash
+curl -sS "<url>/observatory.html" | grep -c "This map is private"   # expect 1
+```
+Give them the password **privately** (backchannel or DM), never in a shared
+channel. To change it, run `--set-password` again; to remove it,
+`--clear-password`.
 
 ✋ **Checkpoint:** act on their yes/no before moving on. If no, leave it open but
 make sure they heard that it's public.
