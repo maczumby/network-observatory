@@ -54,7 +54,9 @@ If the user says yes:
    There are at most 100 tester seats, and access needs a one-click
    reconnect every 7 days until Google verification lands.
 3. When the page shows a command starting `hermes mcp add`, ask the user to
-   paste it to you, then run it, then run:
+   paste it to you, then run it. The new tools appear in your NEXT session,
+   not this one — tell the user that, have them start a fresh chat, and test
+   there:
 
 ```bash
 hermes mcp test network-observatory-gmail
@@ -99,6 +101,9 @@ creating anything from a message:
 - Skip display names that are not person-shaped: single generic words
   ("Push", "Subscribed", "finance"), product names, anything of the form
   "'X' via system-address".
+- Skip messages with more than about 6 external recipients unless a
+  correspondent is already a contact — big CC threads mint acquaintances,
+  not relationships.
 - When you genuinely can't tell, ask the user with the evidence ("mail from
   'GDI Nova <nova@gdi.earth>' — is that a person you know?") instead of
   minting a contact.

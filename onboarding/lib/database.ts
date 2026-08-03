@@ -63,6 +63,27 @@ export async function releaseInvite(tokenHash: string) {
     .run();
 }
 
+export async function recordOpenProvision(
+  tokenHash: string,
+  label: string,
+  emailHash: string,
+  userId: string,
+  sessionId: string,
+) {
+  // Open-door (no-invite) provisions get a synthetic, already-redeemed
+  // invites row so listAccess and revocation can see them. Without this,
+  // self-serve users are invisible to the admin API.
+  const now = new Date().toISOString();
+  await runtimeEnv().DB.prepare(
+    `INSERT INTO invites
+      (token_hash, label, intended_email_hash, created_at, expires_at,
+       redeemed_at, user_id, session_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(tokenHash, label, emailHash, now, now, now, userId, sessionId)
+    .run();
+}
+
 export async function createMcpToken(
   tokenHash: string,
   sessionId: string,

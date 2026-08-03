@@ -11,6 +11,7 @@ import {
   completeInvite,
   createMcpToken,
   getInvite,
+  recordOpenProvision,
   releaseInvite,
   reserveInvite,
 } from "@/lib/database";
@@ -28,17 +29,9 @@ function response(body: Record<string, unknown>, status: number, retryAfter?: nu
 
 export async function POST(request: Request) {
   const runtime = requireRuntimeConfig();
-  const ip = request.headers.get("cf-connecting-ip") || "local";
-  const ipKey = await hmacSha256(runtime.IDENTITY_PEPPER, `ip:${ip}`);
-  const rate = await checkRateLimit(ipKey);
-  if (!rate.allowed) {
-    return response(
-      { error: "Too many attempts. Wait a few minutes and try again." },
-      429,
-      rate.retryAfter,
-    );
-  }
 
+  // Validate BEFORE rate limiting: typos must not burn anyone's quota,
+  // least of all a whole venue's (workshop rooms share one NAT IP).
   const body = (await request.json().catch(() => null)) as
     | { inviteCode?: string; email?: string }
     | null;
@@ -58,6 +51,29 @@ export async function POST(request: Request) {
   const emailHash = await hmacSha256(runtime.IDENTITY_PEPPER, email);
   const userId = `netobs_${emailHash.slice(0, 32)}`;
   const tokenHash = usingInvite ? await sha256(inviteCode) : null;
+
+  // Two-tier rate limit: tight per (IP, email) pair so one person can't spin,
+  // loose per IP so a room of people on shared WiFi all get through while a
+  // single hostile IP still can't mint unbounded Composio sessions.
+  const ip = request.headers.get("cf-connecting-ip") || "local";
+  const pairKey = await hmacSha256(runtime.IDENTITY_PEPPER, `ip:${ip}:${emailHash}`);
+  const pairRate = await checkRateLimit(pairKey, 4);
+  if (!pairRate.allowed) {
+    return response(
+      { error: "Too many attempts for this email. Wait a few minutes and try again." },
+      429,
+      pairRate.retryAfter,
+    );
+  }
+  const ipKey = await hmacSha256(runtime.IDENTITY_PEPPER, `ip:${ip}`);
+  const rate = await checkRateLimit(ipKey, 100);
+  if (!rate.allowed) {
+    return response(
+      { error: "Too many attempts. Wait a few minutes and try again." },
+      429,
+      rate.retryAfter,
+    );
+  }
 
   if (usingInvite && tokenHash) {
     const invite = await getInvite(tokenHash);
@@ -91,6 +107,14 @@ export async function POST(request: Request) {
       await createMcpToken(mcpTokenHash, session.sessionId, mcpExpiresAt);
       if (usingInvite && tokenHash) {
         await completeInvite(tokenHash, session.sessionId);
+      } else {
+        await recordOpenProvision(
+          await sha256(`open:${randomToken(16)}`),
+          `open:${userId.slice(0, 18)}`,
+          emailHash,
+          userId,
+          session.sessionId,
+        );
       }
     } catch (error) {
       await deleteSession(runtime.COMPOSIO_API_KEY, session.sessionId);
@@ -103,6 +127,8 @@ export async function POST(request: Request) {
     // session and try to open their own broad-scope Gmail connection.
     const hermesCommand = [
       `Run this: hermes mcp add network-observatory-gmail --url "${mcpUrl}"`,
+      `After the add command runs, start a new chat session before testing —`,
+      `the tools appear in the next session.`,
       `Then: hermes mcp test network-observatory-gmail`,
       `Then save this to your permanent memory or notes: I have Gmail metadata`,
       `search via the network-observatory-gmail MCP. Use it for ANY question`,

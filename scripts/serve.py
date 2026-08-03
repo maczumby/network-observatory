@@ -46,7 +46,7 @@ AUTH_FILE = os.path.join(REPO_ROOT, "data", "serve_auth.json")
 DEFAULT_PORT = 8766
 PBKDF2_ITERATIONS = 200_000
 SESSION_SECONDS = 30 * 24 * 3600
-ATTEMPT_LIMIT = 8
+ATTEMPT_LIMIT = 20
 ATTEMPT_WINDOW = 15 * 60
 
 LOGIN_PAGE = """<!doctype html>
@@ -176,15 +176,26 @@ class _AuthHandler(http.server.SimpleHTTPRequestHandler):
         )
         self._send_html(body, status=status)
 
-    def _rate_limited(self):
+    def _over_attempt_limit(self):
+        # Behind a tunnel every visitor shares one client IP, so this bucket
+        # is effectively global. Only FAILED attempts may count toward it —
+        # if successes counted, the 9th person opening a shared map would be
+        # locked out with the right password.
+        ip = self.client_address[0]
+        now = time.time()
+        window, count = self.attempts.get(ip, (now, 0))
+        if now - window > ATTEMPT_WINDOW:
+            self.attempts[ip] = (now, 0)
+            return False
+        return count >= ATTEMPT_LIMIT
+
+    def _record_failure(self):
         ip = self.client_address[0]
         now = time.time()
         window, count = self.attempts.get(ip, (now, 0))
         if now - window > ATTEMPT_WINDOW:
             window, count = now, 0
-        count += 1
-        self.attempts[ip] = (window, count)
-        return count > ATTEMPT_LIMIT
+        self.attempts[ip] = (window, count + 1)
 
     def _authorized(self):
         if not self.auth:
@@ -217,7 +228,7 @@ class _AuthHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
             return
-        if self._rate_limited():
+        if self._over_attempt_limit():
             self._send_html("Too many attempts. Wait a few minutes.", status=429)
             return
         length = min(int(self.headers.get("Content-Length") or 0), 4096)
@@ -225,6 +236,7 @@ class _AuthHandler(http.server.SimpleHTTPRequestHandler):
         password = (form.get("password") or [""])[0]
         next_path = safe_next((form.get("next") or [""])[0])
         if not check_password(self.auth, password):
+            self._record_failure()
             self._login_page(next_path, error="That password didn't match. Try again.")
             return
         cookie = (

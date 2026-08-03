@@ -123,11 +123,18 @@ class ServeAuthTest(unittest.TestCase):
                             headers={"Content-Type": "application/x-www-form-urlencoded"})
         self.assertEqual(resp.getheader("Location"), "/observatory.html")
 
-    def test_rate_limit_trips(self):
+    def test_rate_limit_trips_on_failures(self):
         last = None
         for _ in range(self.serve.ATTEMPT_LIMIT + 1):
             last = self.login("wrong")
         self.assertEqual(last.status, 429)
+
+    def test_successful_logins_never_count_toward_lockout(self):
+        # A shared map link means many people logging in from one tunnel IP.
+        # Correct passwords must never trip the limiter.
+        for _ in range(self.serve.ATTEMPT_LIMIT + 5):
+            resp = self.login("correct horse")
+            self.assertEqual(resp.status, 303)
 
     def test_auth_survives_reload(self):
         # A "restart" is a fresh load_auth() from disk; no flags involved.
