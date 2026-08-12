@@ -59,6 +59,18 @@ can't just double-click it, so hand them a link instead. In order:
 
 The full gated sequence, with checkpoints, is in `CLAUDE.md`.
 
+## The other two screens
+
+The map is one of three pages that share a design and a nav bar. Once there's
+contact signal in the database, build them all so the nav links go somewhere:
+
+```bash
+python3 scripts/warmth_export.py       # dashboard/warmth.html — how alive each relationship is
+python3 scripts/workbench_export.py    # dashboard/workbench.html — the People working list
+```
+
+`serve.py` serves all three behind the same password, so it stays one link.
+
 ## Data honesty
 Everything shown comes straight from your export. Function and seniority are
 *inferred from job titles* and labeled that way throughout. Long names, titles,

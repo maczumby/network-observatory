@@ -1,10 +1,18 @@
 # Network Observatory — agent guide
 
-This repo turns a person's LinkedIn export into a local database and a visual star
-map of their professional network. It runs in two steps: **import** (export →
-SQLite) and **observatory** (SQLite → a standalone HTML page).
+This repo turns a person's LinkedIn export into a local database, and that database
+into a small personal CRM: a visual star **map** of their network, a **warmth**
+table showing how alive each relationship is, and a **People** workbench for
+marking, snoozing, and reconciling contacts. Import first (export → SQLite), then
+build the screens (SQLite → standalone HTML pages).
 
 If you are an AI agent working in this repo, this file tells you what to do.
+
+**Before changing anything that touches people, identity, or status, read
+[`docs/DATA_INTEGRITY.md`](docs/DATA_INTEGRITY.md).** It is the contract the code
+follows: one canonical person, `people_v` as the only trusted read,
+propose-confirm-reverse for identity, owner exclusion, the single meeting model,
+and the two-layer status model.
 
 ---
 
@@ -27,7 +35,13 @@ optional and build on the earlier ones, so the map always comes first.
 2. **Import it.** `python3 scripts/linkedin_import.py` (or pass the path). This
    writes `data/linkedin.db` and prints a summary.
 3. **Build it.** `python3 scripts/observatory_export.py` writes the self-contained
-   `dashboard/observatory.html`.
+   `dashboard/observatory.html`. Once there's any contact signal, build the other
+   two screens as well — they share one design and link to each other:
+
+   ```bash
+   python3 scripts/warmth_export.py       # dashboard/warmth.html
+   python3 scripts/workbench_export.py    # dashboard/workbench.html  ("People")
+   ```
 
 ✋ **Checkpoint:** confirm the map built, and read the printed summary back to the
 user in plain language (count, span, top companies). Remind them function and
@@ -98,6 +112,20 @@ channel. To change it, run `--set-password` again; to remove it,
 ✋ **Checkpoint:** act on their yes/no before moving on. If no, leave it open but
 make sure they heard that it's public.
 
+**Editing from the screens (optional, local).** By default the served pages are
+read-only: marking someone on a screen saves it in that browser and gives them a
+sync block to paste to you. If the user wants the controls to write straight to
+their memory instead, serve with `--rw`:
+
+```bash
+python3 scripts/serve.py --rw                  # requires a saved password
+python3 scripts/serve.py --rw --rw-local-only  # they can edit; viewers can only look
+```
+
+Say the trade-off plainly before turning it on: **anyone with the viewing
+password can also change their data unless `--rw-local-only` is set.** Never
+enable `--rw` on a link they're sharing with a group without asking first.
+
 ### Step 4 — Let other people query the network (optional)
 
 Ask if they'd like people in their channels to be able to ask *their agent* about
@@ -144,6 +172,40 @@ the chat. Read that block, then save each person — call `trellis.py capture` p
 Keep the trust contract: cite sources, show the reason, never invent, confirm
 duplicates (`trellis.py dupes` / `merge`), keep identity decisions reversible
 (`trellis.py merges` / `unmerge`), never auto-send.
+
+### Prioritizing and snoozing people
+
+Two independent layers — importance and time — both driven from natural language:
+
+```bash
+trellis.py capture --name "Ada" --prioritize            # star them everywhere
+trellis.py capture --name "Ada" --deprioritize          # hide from warmth/radar (reversible)
+trellis.py capture --name "Ada" --follow-up "in 6 months" --follow-up-reason "after their launch"
+trellis.py capture --name "Ada" --clear-follow-up
+```
+
+"Remind me about them in a week", "park this one for six months", "stop showing me
+this person" all land here. A **due follow-up fires even for a deprioritized
+person** — that's the point of two layers — and `radar` lists due follow-ups
+first. Never clear a follow-up on the user's behalf; the date is theirs.
+
+### Keeping the graph honest
+
+```bash
+python3 scripts/reconcile.py            # regenerate the review queues (changes nothing)
+python3 scripts/reconcile.py --apply    # mute owner addresses + confident non-people
+python3 scripts/calendar_crm.py --file events.json   # meetings: who/when only
+```
+
+`reconcile.py` writes `data/linkedin_identity_review_queue.json` (email contacts
+that look like LinkedIn people you already know) and
+`data/contact_quality_review.json` (addresses that may not be people). Bring the
+**ambiguous** ones to the user with the evidence — don't guess. Identity merges are
+never applied automatically, in either mode.
+
+Set up `data/owner_identities.json` early (their own addresses, plus
+`owner_domains` for teammates) — otherwise the user's own inbox becomes part of
+their network. See `docs/DATA_INTEGRITY.md`.
 
 ## Email recency — the Gmail sweep (fourth capability)
 
@@ -243,8 +305,25 @@ The scripts work fine on their own without this.
 - `scripts/observatory/template.html` — the standalone visual. A canvas starfield
   engine plus a small vanilla reactive layer. Data arrives via a single
   `window.OBS_DATA` object the exporter fills in.
-- To QA a change: rebuild, then open the HTML and check the Groups / Timeline / Ranked
-  views and a detail panel for any text overflow or overlap.
+- `scripts/warmth_export.py` + `observatory/warmth_template.html` — the warmth
+  table with its receipts.
+- `scripts/workbench_export.py` + `observatory/workbench_template.html` — the
+  People screen. Counts use correlated subqueries on purpose: joining
+  interactions × open_loops × calendar_plans in one query multiplies the rows.
+- `scripts/observatory/{fonts.css, tokens.css, common.py}` — the shared spine.
+  `common.py` holds the one HTML escaper, the nav, the `people_v` read, and
+  `person_key` (which must keep matching the template's own key expression — the
+  map's saved notes and flags are keyed by it). Fonts and tokens are **inlined at
+  build time**, never linked, so every page stays self-contained and offline.
+  The map's 12-color canvas `PALETTE` is data encoding, not chrome — it stays in
+  the template and is not themed.
+- To QA a change: rebuild all three, then open each and check the Groups /
+  Timeline / Ranked views and a detail panel for text overflow or overlap, that
+  the nav links work in both directions, and that a person shows the same warmth
+  and status on every screen.
+- To run the tests: `python3 -m unittest discover -s tests` from the repo root.
+  Standard library only — there's no pytest config and no CI, so run them before
+  you hand work back.
 
 Keep the data honest. Anything the code guesses (function, seniority) must stay
 labeled as inferred in the interface.

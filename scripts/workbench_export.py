@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""
+workbench_export.py — the People screen: your contacts as a working list.
+
+Where the map shows the shape of your network and Warmth shows the signal,
+the Workbench is where you act on it: prioritize or deprioritize someone,
+snooze them to a date, and confirm "this email contact is that LinkedIn
+person". Served live (serve.py --rw) the controls write straight to Trellis;
+opened as a file they queue locally and emit a paste-block for your agent —
+the same contract as the map's sync panel.
+
+Counts are computed with correlated subqueries on purpose: joining
+interactions × open_loops × calendar_plans in one query multiplies the rows
+(3 touches × 2 loops × 2 plans would read as 12/8/8).
+
+Usage:
+    python3 workbench_export.py [--db PATH] [--out PATH] [--open]
+
+Standard library only.
+"""
+
+import argparse
+import os
+import sys
+import webbrowser
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(HERE)
+DEFAULT_DB = os.path.join(REPO_ROOT, "data", "linkedin.db")
+TEMPLATE = os.path.join(HERE, "observatory", "workbench_template.html")
+DEFAULT_OUT = os.path.join(REPO_ROOT, "dashboard", "workbench.html")
+
+sys.path.insert(0, HERE)
+import trellis  # noqa: E402
+from observatory import common  # noqa: E402
+import reconcile  # noqa: E402
+
+
+def build_payload(db_path):
+    if not os.path.exists(db_path):
+        raise SystemExit(
+            f"DB not found: {db_path}\n"
+            "Run this first:  python3 scripts/linkedin_import.py")
+    conn = trellis.connect(db_path)  # migrates; people_v is always present
+    today = trellis.TODAY.isoformat()
+
+    people = []
+    for r in conn.execute("""
+        SELECT p.*,
+          (SELECT COUNT(*) FROM interactions i WHERE i.connection_id = p.id) AS n,
+          (SELECT MAX(occurred_on) FROM interactions i WHERE i.connection_id = p.id) AS last_on,
+          (SELECT kind FROM interactions i WHERE i.connection_id = p.id
+           ORDER BY occurred_on DESC, id DESC LIMIT 1) AS last_kind,
+          (SELECT COUNT(*) FROM open_loops o
+           WHERE o.connection_id = p.id AND o.status = 'open') AS loops,
+          (SELECT COUNT(*) FROM calendar_plans cp
+           WHERE cp.connection_id = p.id AND cp.planned_on >= ?) AS plans
+        FROM people_v p
+        ORDER BY p.full_name COLLATE NOCASE""", (today,)):
+        ds = trellis.days_since(r["last_on"])
+        people.append({
+            "id": r["id"],
+            "key": common.person_key(r["url"], r["full_name"], r["company"]),
+            "name": r["full_name"] or "(unnamed)",
+            "company": r["company"] or "", "title": r["title"] or "",
+            "url": r["url"] or "", "email": r["email"] or "",
+            "origin": r["source"] or "manual",
+            "priority": r["priority"] or "normal",
+            "flag": 1 if (r["priority"] or "normal") in ("important", "critical") else 0,
+            "due": 1 if (r["follow_up_on"] and r["follow_up_on"] <= today) else 0,
+            "follow_up_on": r["follow_up_on"],
+            "follow_up_reason": r["follow_up_reason"],
+            "last": r["last_on"], "last_kind": r["last_kind"],
+            "days": ds, "n": r["n"], "loops": r["loops"], "plans": r["plans"],
+            "bucket": trellis.warmth_bucket(ds),
+        })
+
+    # Identity proposals, grouped by the email-/calendar-minted contact so the
+    # working row can offer "same person as…?" with the evidence.
+    candidates = {}
+    for prop in reconcile.identity_queue(conn):
+        candidates.setdefault(str(prop["stray_id"]), []).append({
+            "linkedin_id": prop["linkedin_id"],
+            "linkedin_name": prop["linkedin_name"],
+            "linkedin_company": prop["linkedin_company"],
+            "why": prop["why"],
+            "merge_command": prop["merge_command"],
+        })
+    conn.close()
+
+    return {"people": people, "candidates": candidates, "today": today}
+
+
+def render(payload, out_path):
+    return common.render_page(TEMPLATE, "__WORKBENCH_DATA__", payload,
+                              out_path, active="workbench")
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Bake the People workbench from the memory DB.")
+    ap.add_argument("--db", default=DEFAULT_DB)
+    ap.add_argument("--out", default=DEFAULT_OUT)
+    ap.add_argument("--open", action="store_true", help="open the result in a browser")
+    args = ap.parse_args()
+
+    payload = build_payload(args.db)
+    render(payload, args.out)
+    flagged = sum(1 for p in payload["people"] if p["flag"])
+    due = sum(1 for p in payload["people"] if p["due"])
+    print(f"Wrote {args.out}")
+    print(f"  {len(payload['people'])} people; {flagged} prioritized, {due} follow-ups due, "
+          f"{len(payload['candidates'])} with identity proposals")
+    if args.open:
+        webbrowser.open("file://" + os.path.abspath(args.out))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,174 @@
+/* ==========================================================================
+   Observatory design tokens — the ONE system all three screens consume.
+   Inlined at build time by scripts/observatory/common.py (never linked;
+   every generated page stays fully self-contained and offline).
+
+   The world: an astronomer's darkroom. Deep indigo night sky; instruments lit
+   by dim amber lamplight (the classic way to keep your night vision). Amber
+   is reserved for the pilot dot and the priority star; the ember tone marks a
+   follow-up that has come due; actions glow periwinkle like airglow. The
+   map's 12-color canvas star palette is DATA ENCODING and lives in the map
+   engine — these tokens govern chrome only.
+   ========================================================================== */
+:root {
+  /* surfaces */
+  --obs-bg: #0b0e18;
+  --obs-bg-raised: #131728;
+  --obs-bg-overlay: rgba(13, 17, 30, 0.93);
+  --obs-line: rgba(166, 178, 212, 0.14);
+  --obs-line-strong: rgba(166, 178, 212, 0.30);
+
+  /* ink */
+  --obs-ink: #e9ecf6;
+  --obs-ink-dim: #a8b0ca;
+  --obs-ink-faint: #6d7590;
+
+  /* accents */
+  --obs-accent: #9db2ff;        /* interactive: links, buttons, selection */
+  --obs-accent-ink: #0a0d1a;    /* text on an accent fill */
+  --obs-star: #f2c078;          /* priority ★ + the pilot dot (lamplight) */
+  --obs-due: #f0907d;           /* follow-up due ◷ (ember) */
+
+  /* warmth ramp — heat draining out of a relationship */
+  --obs-w-active: #86dcb4;
+  --obs-w-warm: #ecc678;
+  --obs-w-cooling: #c9a284;
+  --obs-w-cold: #8b98b4;
+  /* "no data" is deliberately not a color: it renders as a dashed outline. */
+
+  /* type — the three embedded faces */
+  --obs-font-display: 'Instrument Serif', Georgia, serif;
+  --obs-font-body: 'Hanken Grotesk', system-ui, sans-serif;
+  --obs-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --obs-fs-title: 25px;
+  --obs-fs-body: 13.5px;
+  --obs-fs-small: 12px;
+  --obs-fs-micro: 11px;
+  --obs-ls-label: 0.22em;
+
+  /* the map's sky — gradient stops shared by CSS and the canvas backdrop */
+  --obs-sky-0: #111737;
+  --obs-sky-1: #090c19;
+  --obs-sky-2: #05060e;
+
+  /* space & shape */
+  --obs-sp-1: 4px; --obs-sp-2: 8px; --obs-sp-3: 12px;
+  --obs-sp-4: 16px; --obs-sp-5: 24px; --obs-sp-6: 36px;
+  --obs-r-sm: 6px; --obs-r-md: 10px; --obs-r-lg: 16px;
+  --obs-shadow-1: 0 2px 10px rgba(2, 4, 10, 0.45);
+  --obs-shadow-2: 0 12px 40px rgba(2, 4, 10, 0.6);
+  --obs-nav-h: 42px;
+}
+
+/* --------------------------------------------------------------------------
+   The instrument rail — one nav on every screen. On table pages it is a solid
+   bar; the map overlays it on the sky with .obs-nav--overlay.
+   -------------------------------------------------------------------------- */
+.obs-nav {
+  display: flex; align-items: center; gap: var(--obs-sp-3);
+  height: var(--obs-nav-h); padding: 0 var(--obs-sp-5);
+  background: var(--obs-bg-raised);
+  border-bottom: 1px solid var(--obs-line);
+  font-family: var(--obs-font-mono);
+  font-size: var(--obs-fs-micro);
+  letter-spacing: var(--obs-ls-label);
+  color: var(--obs-ink-dim);
+  position: relative; z-index: 30;
+}
+.obs-nav--overlay {
+  position: absolute; top: 0; left: 0; right: 0;
+  background: linear-gradient(to bottom, rgba(7, 9, 17, 0.88), rgba(7, 9, 17, 0.55));
+  border-bottom: 1px solid rgba(166, 178, 212, 0.10);
+  pointer-events: auto;
+}
+.obs-nav-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--obs-star);
+  box-shadow: 0 0 11px 2px rgba(242, 192, 120, 0.7);
+  flex: none;
+}
+.obs-nav-brand { color: var(--obs-ink-dim); margin-right: var(--obs-sp-3); }
+.obs-nav a {
+  color: var(--obs-ink-dim); text-decoration: none;
+  padding: 4px 2px; border-bottom: 1px solid transparent;
+  letter-spacing: 0.14em; text-transform: uppercase;
+}
+.obs-nav a:hover { color: var(--obs-ink); }
+.obs-nav a:focus-visible {
+  outline: 2px solid var(--obs-accent); outline-offset: 2px;
+  border-radius: 3px;
+}
+.obs-nav a[aria-current="page"] {
+  color: var(--obs-ink); border-bottom-color: var(--obs-star);
+}
+.obs-mode[hidden] { display: none; }
+.obs-mode {
+  margin-left: auto; display: inline-flex; align-items: center;
+  gap: 7px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--obs-ink-faint);
+}
+.obs-mode::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--obs-ink-faint); flex: none;
+}
+.obs-mode[data-mode="live"] { color: var(--obs-ink-dim); }
+.obs-mode[data-mode="live"]::before {
+  background: var(--obs-w-active);
+  box-shadow: 0 0 9px 1px rgba(134, 220, 180, 0.65);
+}
+
+/* --------------------------------------------------------------------------
+   Shared components
+   -------------------------------------------------------------------------- */
+.obs-badge-star, .obs-badge-due {
+  font-style: normal; font-family: var(--obs-font-body);
+  margin-right: 2px;
+}
+.obs-badge-star { color: var(--obs-star); }
+.obs-badge-due { color: var(--obs-due); }
+
+.obs-chip {
+  padding: 5px 12px; border-radius: 999px;
+  border: 1px solid var(--obs-line);
+  background: none; color: var(--obs-ink-dim);
+  font-family: var(--obs-font-body); font-size: var(--obs-fs-small);
+  cursor: pointer;
+}
+.obs-chip:hover { border-color: var(--obs-line-strong); color: var(--obs-ink); }
+.obs-chip:focus-visible { outline: 2px solid var(--obs-accent); outline-offset: 2px; }
+.obs-chip[aria-pressed="true"] {
+  background: var(--obs-ink); color: var(--obs-bg); border-color: var(--obs-ink);
+}
+
+.obs-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 13px; border-radius: var(--obs-r-sm);
+  border: 1px solid var(--obs-line-strong);
+  background: none; color: var(--obs-ink);
+  font-family: var(--obs-font-body); font-size: var(--obs-fs-small);
+  cursor: pointer;
+}
+.obs-btn:hover { border-color: var(--obs-accent); color: var(--obs-accent); }
+.obs-btn:focus-visible { outline: 2px solid var(--obs-accent); outline-offset: 2px; }
+.obs-btn--primary {
+  background: var(--obs-accent); border-color: var(--obs-accent);
+  color: var(--obs-accent-ink); font-weight: 600;
+}
+.obs-btn--primary:hover { filter: brightness(1.08); color: var(--obs-accent-ink); }
+
+.obs-bucket {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: var(--obs-fs-small); font-weight: 600; color: var(--obs-accent-ink);
+}
+.obs-bucket.b-active { background: var(--obs-w-active); }
+.obs-bucket.b-warm { background: var(--obs-w-warm); }
+.obs-bucket.b-cooling { background: var(--obs-w-cooling); }
+.obs-bucket.b-cold { background: var(--obs-w-cold); }
+.obs-bucket.b-nodata {
+  background: none; color: var(--obs-ink-dim);
+  border: 1px dashed var(--obs-line-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .obs-nav-dot, .obs-mode::before { box-shadow: none; }
+}

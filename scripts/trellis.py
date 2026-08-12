@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS identity_merge_meta (
     merge_id INTEGER NOT NULL REFERENCES identity_merges(id),
     connection_id INTEGER NOT NULL REFERENCES connections(id),
     existed INTEGER NOT NULL, priority TEXT, mode TEXT, updated_at TEXT,
+    follow_up_on TEXT, follow_up_reason TEXT,
     PRIMARY KEY (merge_id, connection_id)
 );
 CREATE INDEX IF NOT EXISTS idx_int_conn ON interactions(connection_id);
@@ -131,6 +132,105 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_int_srcref
     ON interactions(source, source_ref) WHERE source_ref IS NOT NULL;
 """
 
+# Tables added after v1.11.1. migrate() creates these itself so that running it
+# against an older DB is enough — it never depends on the DDL above having run.
+CALENDAR_PLANS_DDL = """
+CREATE TABLE IF NOT EXISTS calendar_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    connection_id INTEGER NOT NULL REFERENCES connections(id),
+    planned_on TEXT, source TEXT, source_ref TEXT, created_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_plan_srcref
+    ON calendar_plans(source, source_ref) WHERE source_ref IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_plan_conn ON calendar_plans(connection_id);
+"""
+
+# The one trusted read over people: live (not merged tombstones), not muted, and
+# email-/calendar-minted contacts only count once they carry actual signal.
+# Exporters and queries consume this view instead of re-stating the filter.
+PEOPLE_V_SQL = """
+CREATE VIEW people_v AS
+SELECT c.id, c.natural_key, c.first_name, c.last_name, c.full_name,
+       c.url, c.email, c.company, c.title, c.func, c.is_founder, c.rank,
+       c.connected_year, c.connected_month, c.connected_raw,
+       lower(COALESCE(NULLIF(c.source,''),'manual')) AS source,
+       c.first_seen_at, c.updated_at,
+       COALESCE(m.priority,'normal') AS priority, m.mode,
+       m.follow_up_on, m.follow_up_reason
+FROM connections c
+LEFT JOIN person_meta m ON m.connection_id = c.id
+WHERE lower(COALESCE(c.source,'')) NOT LIKE 'merged_into_%'
+  AND COALESCE(m.priority,'normal') <> 'muted'
+  AND (lower(COALESCE(c.source,'')) NOT IN ('gmail','calendar')
+       OR EXISTS (SELECT 1 FROM interactions i WHERE i.connection_id = c.id)
+       -- an upcoming meeting is signal too: the person you're seeing on
+       -- Thursday must not be invisible until after you've met them
+       OR EXISTS (SELECT 1 FROM calendar_plans cp WHERE cp.connection_id = c.id))
+"""
+
+# Columns migrate() must find after running. A DB that fails this check carries a
+# different CRM-unify schema (e.g. a divergent hand-applied patch) — stop loudly
+# rather than write against it.
+_REQUIRED_COLUMNS = {
+    "interactions": ("direction",),
+    "person_meta": ("follow_up_on", "follow_up_reason"),
+    "calendar_plans": ("connection_id", "planned_on", "source", "source_ref"),
+}
+
+
+def _add_column(conn, table, column, decl):
+    """Add a column if it isn't there. Tolerates both 'already present' and
+    'table not created yet' — the DDL above creates missing tables with the
+    current shape, so there is nothing to upgrade in that case."""
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    except sqlite3.OperationalError as e:
+        message = str(e).lower()
+        if "duplicate column" not in message and "no such table" not in message:
+            raise
+
+
+def migrate(conn):
+    """Bring any older DB up to the current schema. Additive and idempotent:
+    columns are only ever added, the backfill touches only NULLs, and the view is
+    recreated so the shipped definition is always the one in effect."""
+    try:
+        conn.executescript(CALENDAR_PLANS_DDL)
+    except sqlite3.OperationalError:
+        # A pre-existing table of a different shape makes the indexes fail.
+        # Swallow it here so the column assertion below can say what's wrong
+        # in plain language instead of surfacing a raw sqlite traceback.
+        pass
+    _add_column(conn, "interactions", "direction", "TEXT")
+    _add_column(conn, "person_meta", "follow_up_on", "TEXT")
+    _add_column(conn, "person_meta", "follow_up_reason", "TEXT")
+    # One-time backfill from the legacy summary strings. The match is a
+    # substring test, deliberately: it reproduces exactly what the old
+    # summary-scanning warmth code displayed ("sent" anywhere wins, else
+    # "received"), so upgrading never loses a direction a user could already
+    # see. "email exchanged" contains neither and stays NULL. Only NULL rows
+    # are touched, so this can't overwrite anything set since.
+    conn.execute("""UPDATE interactions SET direction='sent'
+        WHERE direction IS NULL AND lower(summary) LIKE '%sent%'""")
+    conn.execute("""UPDATE interactions SET direction='received'
+        WHERE direction IS NULL AND lower(summary) LIKE '%received%'""")
+    # The merge journal has to snapshot follow-ups too, or merging someone
+    # silently destroys a date the user set and unmerge can't give it back.
+    _add_column(conn, "identity_merge_meta", "follow_up_on", "TEXT")
+    _add_column(conn, "identity_merge_meta", "follow_up_reason", "TEXT")
+    conn.execute("DROP VIEW IF EXISTS people_v")
+    conn.execute(PEOPLE_V_SQL)
+    for table, cols in _REQUIRED_COLUMNS.items():
+        have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        missing = [c for c in cols if c not in have]
+        if missing:
+            raise SystemExit(
+                f"schema mismatch: table '{table}' is missing column(s) "
+                f"{', '.join(missing)} — this DB carries a different CRM-unify "
+                f"schema. Do not proceed; run sqlite3 on the DB, capture "
+                f"'.schema {table}', and report it.")
+    conn.commit()
+
 
 def connect(db_path):
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -138,11 +238,46 @@ def connect(db_path):
     conn.row_factory = sqlite3.Row
     conn.executescript(CONNECTIONS_DDL)
     conn.executescript(TRELLIS_DDL)
+    migrate(conn)
     return conn
 
 
 def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+# ---------------------------------------------------------------------------
+# Owner identities — you and your teammates are not "contacts"
+# ---------------------------------------------------------------------------
+
+def load_owner_identities(db_path):
+    """Read data/owner_identities.json (beside the DB). Shape:
+    {"owner_emails": ["you@example.com", ...], "owner_domains": ["yourco.com", ...]}
+    Missing file just means no exclusions; a malformed one fails loudly."""
+    path = os.path.join(os.path.dirname(os.path.abspath(db_path)),
+                        "owner_identities.json")
+    if not os.path.exists(path):
+        return {"owner_emails": [], "owner_domains": []}
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        raise SystemExit(f"Can't read {path}: {e} — fix or remove it.")
+    return {
+        "owner_emails": [str(e).strip().lower()
+                         for e in data.get("owner_emails", []) if str(e).strip()],
+        "owner_domains": [str(d).strip().lower().lstrip("@")
+                          for d in data.get("owner_domains", []) if str(d).strip()],
+    }
+
+
+def is_owner_address(email, owner_ids):
+    e = (email or "").strip().lower()
+    if not e or "@" not in e or not owner_ids:
+        return False
+    if e in owner_ids.get("owner_emails", ()):
+        return True
+    return e.rsplit("@", 1)[1] in owner_ids.get("owner_domains", ())
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +359,8 @@ def find_or_create_person(conn, name=None, email=None, url=None,
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (_natural_key(url, name, company), first, last, name, url or "", email or "",
          company or "", title or "", infer_func(title or "", founder),
-         1 if founder else 0, infer_rank(title or ""), origin or "manual", now(), now()))
+         1 if founder else 0, infer_rank(title or ""),
+         (origin or "manual").strip().lower(), now(), now()))
     conn.commit()
     return cur.lastrowid
 
@@ -257,6 +393,77 @@ def meta_for(conn, cid):
     return conn.execute("SELECT * FROM person_meta WHERE connection_id=?", (cid,)).fetchone()
 
 
+# ---------------------------------------------------------------------------
+# Two-layer status: priority (importance) + follow_up_on (a date-based snooze)
+# ---------------------------------------------------------------------------
+
+_FOLLOW_UP_MAX_YEARS = 10  # beyond this it's almost certainly a typo, not a plan
+
+
+def _add_months(d, months):
+    total = d.year * 12 + (d.month - 1) + months
+    y, mo = divmod(total, 12)
+    day_max = [31, 29 if (y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)) else 28,
+               31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo]
+    return date(y, mo + 1, min(d.day, day_max))
+
+
+def parse_follow_up(text, today=None):
+    """'2026-09-01', 'in 1 week', 'in 6 months', '3 weeks' → an ISO date.
+    Fails loudly (SystemExit, never a traceback) on garbage or absurd offsets."""
+    today = today or TODAY
+    t = (text or "").strip().lower()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", t):
+        try:
+            date.fromisoformat(t)
+        except ValueError:
+            raise SystemExit(f"'{text}' is not a real date.")
+        return t
+    m = re.fullmatch(r"(?:in\s+)?(\d+)\s*(day|week|month|year)s?", t)
+    if not m:
+        raise SystemExit(
+            f"Can't parse follow-up '{text}'. Use YYYY-MM-DD or a phrase like "
+            "'in 1 week', 'in 6 months'.")
+    n, unit = int(m.group(1)), m.group(2)
+    try:
+        if unit == "day":
+            result = date.fromordinal(today.toordinal() + n)
+        elif unit == "week":
+            result = date.fromordinal(today.toordinal() + n * 7)
+        elif unit == "month":
+            result = _add_months(today, n)
+        else:
+            result = _add_months(today, n * 12)
+    except (ValueError, OverflowError, IndexError):
+        raise SystemExit(f"Follow-up '{text}' is too far in the future.")
+    if result.year > today.year + _FOLLOW_UP_MAX_YEARS:
+        raise SystemExit(
+            f"Follow-up '{text}' lands in {result.year} — more than "
+            f"{_FOLLOW_UP_MAX_YEARS} years out looks like a typo.")
+    return result.isoformat()
+
+
+def set_priority(conn, cid, priority):
+    """Set the exact priority the user chose. (Bulk map sync uses cmd_apply's
+    raise-never-downgrade instead; an explicit choice is authoritative.)"""
+    m = meta_for(conn, cid)
+    conn.execute("""INSERT INTO person_meta (connection_id, priority, mode, updated_at)
+        VALUES (?,?,?,?) ON CONFLICT(connection_id) DO UPDATE SET
+        priority=excluded.priority, updated_at=excluded.updated_at""",
+        (cid, priority, m["mode"] if m else None, now()))
+
+
+def set_follow_up(conn, cid, on, reason=None):
+    """on = ISO date, or None to clear (also clears the reason)."""
+    conn.execute("""INSERT INTO person_meta
+        (connection_id, follow_up_on, follow_up_reason, updated_at)
+        VALUES (?,?,?,?) ON CONFLICT(connection_id) DO UPDATE SET
+        follow_up_on=excluded.follow_up_on,
+        follow_up_reason=excluded.follow_up_reason,
+        updated_at=excluded.updated_at""",
+        (cid, on, reason if on else None, now()))
+
+
 # Warmth buckets — same absolute thresholds skills/email-recency.md promises
 # users. Distinct from CADENCE, which is mode-relative and drives radar only.
 WARMTH_BUCKETS = ((14, "active"), (60, "warm"), (180, "cooling"))
@@ -278,50 +485,68 @@ def warmth_rows(conn, include_muted=False):
     safe to run for display as often as anyone likes. Muted contacts (bulk
     senders, not-a-person addresses) are hidden unless explicitly asked for.
     """
-    rows = []
-    for r in conn.execute("""
-        SELECT c.id, c.full_name, c.company, c.title, c.email, c.url, c.source,
-               m.priority, m.mode, agg.last_on, agg.n, agg.last_id
-        FROM connections c
-        LEFT JOIN person_meta m ON m.connection_id = c.id
-        LEFT JOIN (SELECT connection_id, MAX(occurred_on) AS last_on,
-                          COUNT(*) AS n, MAX(id) AS last_id
+    agg_join = """
+        LEFT JOIN (SELECT connection_id, MAX(occurred_on) AS last_on, COUNT(*) AS n
                    FROM interactions GROUP BY connection_id) agg
-               ON agg.connection_id = c.id
-        WHERE c.source NOT LIKE 'merged_into_%'"""):
-        if not include_muted and (r["priority"] or "normal") == "muted":
-            continue
+               ON agg.connection_id = {alias}.id"""
+    if include_muted:
+        # The only reader that deliberately looks behind the trust filter.
+        sql = ("""
+        SELECT c.id, c.full_name, c.company, c.title, c.email, c.url,
+               lower(COALESCE(NULLIF(c.source,''),'manual')) AS source,
+               COALESCE(m.priority,'normal') AS priority, m.mode,
+               m.follow_up_on, m.follow_up_reason, agg.last_on, agg.n
+        FROM connections c
+        LEFT JOIN person_meta m ON m.connection_id = c.id"""
+               + agg_join.format(alias="c")
+               + " WHERE lower(COALESCE(c.source,'')) NOT LIKE 'merged_into_%'")
+    else:
+        sql = ("""
+        SELECT p.id, p.full_name, p.company, p.title, p.email, p.url, p.source,
+               p.priority, p.mode, p.follow_up_on, p.follow_up_reason,
+               agg.last_on, agg.n
+        FROM people_v p""" + agg_join.format(alias="p"))
+    rows = []
+    for r in conn.execute(sql):
         ds = days_since(r["last_on"])
+        pri = r["priority"] or "normal"
         rows.append({
             "id": r["id"], "name": r["full_name"], "company": r["company"],
             "title": r["title"], "email": r["email"], "url": r["url"],
             "origin": r["source"] or "manual",
-            "flagged": (r["priority"] or "normal") in ("important", "critical"),
-            "muted": (r["priority"] or "normal") == "muted",
+            "flagged": pri in ("important", "critical"),
+            "muted": pri == "muted",
             "mode": r["mode"],
+            "follow_up_on": r["follow_up_on"],
+            "follow_up_due": bool(r["follow_up_on"]
+                                  and r["follow_up_on"] <= TODAY.isoformat()),
             "last_contact": r["last_on"], "days_since": ds,
             "interactions": r["n"] or 0,
             "bucket": warmth_bucket(ds),
             "direction": None,
         })
-    # Direction lives in the newest interaction's summary ("email sent" /
-    # "email received"); older ingests wrote "email exchanged", which has none.
+    # Direction comes from the newest interaction's direction column, taken as-is:
+    # a newer direction-less touch (a meeting, an "email exchanged" legacy row)
+    # means we no longer know who wrote last, so NULL wins over an older value.
     # Match on the newest DATE, not the highest row id — paged sweeps ingest
     # older messages after newer ones, so id order isn't chronological.
+    # Several touches can share the newest date, and ingest order is not
+    # chronological — so rather than let insertion order pick a winner, agree
+    # or say nothing: one direction across that day reports it, a mixed day
+    # (you wrote and they wrote) reports None.
     by_id = {p["id"]: p for p in rows if p["interactions"]}
     if by_id:
+        seen = {}
         for r in conn.execute("""
-            SELECT i.connection_id AS cid, i.summary FROM interactions i
+            SELECT i.connection_id AS cid, i.direction FROM interactions i
             JOIN (SELECT connection_id, MAX(occurred_on) AS lo
                   FROM interactions GROUP BY connection_id) x
-              ON x.connection_id = i.connection_id AND i.occurred_on = x.lo
-            ORDER BY i.id"""):
-            summary = (r["summary"] or "").lower()
+              ON x.connection_id = i.connection_id AND i.occurred_on = x.lo"""):
             if r["cid"] in by_id:
-                if "sent" in summary:
-                    by_id[r["cid"]]["direction"] = "sent"
-                elif "received" in summary:
-                    by_id[r["cid"]]["direction"] = "received"
+                seen.setdefault(r["cid"], set()).add(r["direction"])
+        for cid, directions in seen.items():
+            by_id[cid]["direction"] = (directions.pop() if len(directions) == 1
+                                       else None)
     return rows
 
 
@@ -534,37 +759,67 @@ def cmd_capture(conn, a):
             due_on, source, created_at) VALUES (?,?, 'open', ?, ?, ?)""",
             (cid, a.loop, a.due, a.source or "manual", now()))
         recorded.append(f"open loop: {a.loop}" + (f" (due {a.due})" if a.due else ""))
-    if a.priority or a.mode:
+    priority = a.priority or ("important" if a.prioritize else None) \
+        or ("muted" if a.deprioritize else None)
+    if priority or a.mode:
         m = meta_for(conn, cid)
-        pri = a.priority or (m["priority"] if m else "normal")
+        pri = priority or (m["priority"] if m else "normal")
         mode = a.mode or (m["mode"] if m else None)
         conn.execute("""INSERT INTO person_meta (connection_id, priority, mode, updated_at)
             VALUES (?,?,?,?) ON CONFLICT(connection_id) DO UPDATE SET
             priority=excluded.priority, mode=excluded.mode, updated_at=excluded.updated_at""",
             (cid, pri, mode, now()))
         recorded.append(f"priority={pri}" + (f", mode={mode}" if mode else ""))
+    if a.follow_up:
+        due = parse_follow_up(a.follow_up)
+        set_follow_up(conn, cid, due, a.follow_up_reason)
+        recorded.append(f"follow up on {due}"
+                        + (f" ({a.follow_up_reason})" if a.follow_up_reason else "")
+                        + " — radar will surface them then, even if deprioritized")
+    elif a.clear_follow_up:
+        set_follow_up(conn, cid, None)
+        recorded.append("follow-up cleared")
     conn.commit()
     print("Recorded:")
     for r in recorded:
         print("  •", r)
 
 
-def _ingest_one(conn, ev):
+def _direction_of(ev):
+    """Explicit ev["direction"] wins; else derive it from the summary the agents
+    already write. Anything direction-less ("email exchanged", meetings) is NULL."""
+    d = (ev.get("direction") or "").strip().lower()
+    if d in ("sent", "received"):
+        return d
+    summary = (ev.get("summary") or "").strip().lower()
+    if summary.startswith("email sent"):
+        return "sent"
+    if summary.startswith("email received"):
+        return "received"
+    return None
+
+
+def _ingest_one(conn, ev, owner_ids=None):
     person = ev.get("person") or {}
+    if owner_ids and is_owner_address(person.get("email"), owner_ids):
+        return "owner_skipped"
     cid = find_or_create_person(
         conn, name=person.get("name"), email=person.get("email"),
         url=person.get("url"), company=person.get("company"),
         title=person.get("title"), origin=ev.get("source") or "manual")
-    src, ref = ev.get("source", "agent"), ev.get("source_ref")
+    src = (ev.get("source") or "agent").strip().lower()
+    ref = ev.get("source_ref")
     if ref:  # idempotent: skip if this exact event is already stored
         dup = conn.execute("SELECT 1 FROM interactions WHERE source=? AND source_ref=?",
                            (src, ref)).fetchone()
         if dup:
             return "skipped"
     conn.execute("""INSERT INTO interactions (connection_id, kind, occurred_on, summary,
-        source, source_ref, confidence, created_at) VALUES (?,?,?,?,?,?,?,?)""",
+        source, source_ref, confidence, created_at, direction)
+        VALUES (?,?,?,?,?,?,?,?,?)""",
         (cid, ev.get("kind", "event"), (ev.get("date") or TODAY.isoformat())[:10],
-         ev.get("summary", ""), src, ref, ev.get("confidence", 0.9), now()))
+         ev.get("summary", ""), src, ref, ev.get("confidence", 0.9), now(),
+         _direction_of(ev)))
     if ev.get("open_loop"):
         conn.execute("""INSERT INTO open_loops (connection_id, description, status,
             source, source_ref, created_at) VALUES (?,?, 'open', ?,?,?)""",
@@ -577,23 +832,34 @@ def cmd_ingest(conn, a):
                      else sys.stdin.read())
     data = json.loads(raw)
     events = data if isinstance(data, list) else [data]
-    added = skipped = 0
+    owner_ids = load_owner_identities(a.db)
+    added = skipped = owner_skipped = 0
     for ev in events:
-        if _ingest_one(conn, ev) == "added":
+        result = _ingest_one(conn, ev, owner_ids=owner_ids)
+        if result == "added":
             added += 1
+        elif result == "owner_skipped":
+            owner_skipped += 1
         else:
             skipped += 1
     conn.commit()
-    print(f"Ingested {added} interaction(s); skipped {skipped} already-seen.")
+    msg = f"Ingested {added} interaction(s); skipped {skipped} already-seen."
+    if owner_skipped:
+        msg += (f" Skipped {owner_skipped} owner/teammate address(es) per "
+                "data/owner_identities.json.")
+    print(msg)
 
 
 def _profile(conn, p):
     out = [f"{label(p)}"]
     m = meta_for(conn, p["id"])
-    if m and (m["priority"] != "normal" or m["mode"]):
+    if m and (m["priority"] != "normal" or m["mode"] or m["follow_up_on"]):
         out.append("  " + ", ".join(filter(None, [
             f"priority: {m['priority']}" if m["priority"] != "normal" else "",
-            f"mode: {m['mode']}" if m["mode"] else ""])))
+            f"mode: {m['mode']}" if m["mode"] else "",
+            (f"follow up on {m['follow_up_on']}"
+             + (f" ({m['follow_up_reason']})" if m["follow_up_reason"] else ""))
+            if m["follow_up_on"] else ""])))
     if p["connected_year"]:
         out.append(f"  connected on LinkedIn: {p['connected_year']}")
     ints = conn.execute("""SELECT * FROM interactions WHERE connection_id=?
@@ -676,6 +942,23 @@ def cmd_radar(conn, a):
         if not cur or score > cur["score"]:
             cands[cid] = {"cid": cid, "kind": kind, "score": score,
                           "reason": reason, "facts": facts}
+
+    # 0) due follow-ups — a date the user set on purpose. Highest score, listed
+    #    first, and deliberately NOT gated on priority: "deprioritize, but check
+    #    back in 6 months" must fire even though the person is muted.
+    for r in conn.execute("""SELECT connection_id, follow_up_on, follow_up_reason
+            FROM person_meta WHERE follow_up_on IS NOT NULL AND follow_up_on <= ?""",
+            (TODAY.isoformat(),)).fetchall():
+        p = person_row(conn, r["connection_id"])
+        if not p or (p["source"] or "").startswith("merged_into_"):
+            continue
+        facts = [f"you asked to follow up on {r['follow_up_on']}"]
+        if r["follow_up_reason"]:
+            facts.append(f"reason: {r['follow_up_reason']}")
+        add(r["connection_id"], "follow_up", 110,
+            f"{p['full_name']} — follow-up you set is due"
+            + (f": {r['follow_up_reason']}" if r["follow_up_reason"] else ""),
+            facts)
 
     # 1) open loops — highest signal (you owe something concrete)
     for r in conn.execute("""SELECT o.*, c.full_name FROM open_loops o
@@ -774,7 +1057,9 @@ def _norm(s):
     return re.sub(r"[^a-z ]", "", (s or "").lower()).strip()
 
 
-def cmd_dupes(conn, a):
+def _dupe_pairs(conn):
+    """(a, b, evidence, confidence) tuples for possible duplicate people.
+    Proposals only — nothing is merged here."""
     people = conn.execute(
         "SELECT * FROM connections WHERE source NOT LIKE 'merged_into_%'"
     ).fetchall()
@@ -804,6 +1089,11 @@ def cmd_dupes(conn, a):
                                       _norm(b1["full_name"])).ratio()
                 if sim >= 0.82 and a1["full_name"] != b1["full_name"]:
                     pairs.append((a1, b1, f"similar names at {a1['company']}", "possible"))
+    return pairs
+
+
+def cmd_dupes(conn, a):
+    pairs = _dupe_pairs(conn)
     if not pairs:
         print("No likely duplicates found.")
         return
@@ -847,8 +1137,33 @@ def cmd_apply(conn, a):
         conn.execute("""INSERT INTO notes (connection_id, content, category, created_at)
             VALUES (?,?, 'context', ?)""", (cid, note, now()))
         nn += 1
+    # Explicit status choices from a screen (priority / follow-up) set the exact
+    # value the user picked — unlike flags above, which only ever raise.
+    np = nu = 0
+    for s in data.get("priorities", []):
+        pri = (s.get("priority") or "").strip().lower()
+        if pri not in ("muted", "normal", "important", "critical"):
+            print(f"  skipping unknown priority '{s.get('priority')}' "
+                  f"for {s.get('name') or s.get('email')}")
+            continue
+        cid = find_or_create_person(conn, name=s.get("name"), email=s.get("email"),
+                                    url=s.get("url"), company=s.get("company"))
+        set_priority(conn, cid, pri)
+        np += 1
+    for s in data.get("follow_ups", []):
+        cid = find_or_create_person(conn, name=s.get("name"), email=s.get("email"),
+                                    url=s.get("url"), company=s.get("company"))
+        on = s.get("on")
+        set_follow_up(conn, cid, parse_follow_up(on) if on else None,
+                      s.get("reason"))
+        nu += 1
     conn.commit()
-    print(f"Applied {nf} reconnect flag(s) and {nn} note(s) from the map.")
+    bits = [f"{nf} reconnect flag(s)", f"{nn} note(s)"]
+    if np:
+        bits.append(f"{np} priority change(s)")
+    if nu:
+        bits.append(f"{nu} follow-up(s)")
+    print("Applied " + ", ".join(bits) + " from the map.")
 
 
 def cmd_merge(conn, a):
@@ -883,12 +1198,15 @@ def cmd_merge(conn, a):
         dst_meta = meta_for(conn, a.into)
         for cid, meta in ((a.src, src_meta), (a.into, dst_meta)):
             conn.execute("""INSERT INTO identity_merge_meta
-                (merge_id, connection_id, existed, priority, mode, updated_at)
-                VALUES (?,?,?,?,?,?)""",
+                (merge_id, connection_id, existed, priority, mode, updated_at,
+                 follow_up_on, follow_up_reason)
+                VALUES (?,?,?,?,?,?,?,?)""",
                 (merge_id, cid, 1 if meta else 0,
                  meta["priority"] if meta else None,
                  meta["mode"] if meta else None,
-                 meta["updated_at"] if meta else None))
+                 meta["updated_at"] if meta else None,
+                 meta["follow_up_on"] if meta else None,
+                 meta["follow_up_reason"] if meta else None))
 
         if src_meta:
             order = {"muted": 0, "normal": 1, "important": 2, "critical": 3}
@@ -896,11 +1214,24 @@ def cmd_merge(conn, a):
             dst_priority = (dst_meta["priority"] if dst_meta else None) or "normal"
             priority = max((src_priority, dst_priority), key=lambda p: order.get(p, 1))
             mode = (dst_meta["mode"] if dst_meta else None) or src_meta["mode"]
+            # Keep the follow-up the user set. If both sides carry one, the
+            # earlier date wins — a merge must never push a reminder later.
+            dates = [m["follow_up_on"] for m in (dst_meta, src_meta)
+                     if m and m["follow_up_on"]]
+            follow_up_on = min(dates) if dates else None
+            follow_up_reason = None
+            for m in (dst_meta, src_meta):
+                if m and m["follow_up_on"] == follow_up_on:
+                    follow_up_reason = m["follow_up_reason"]
+                    break
             conn.execute("""INSERT INTO person_meta
-                (connection_id, priority, mode, updated_at) VALUES (?,?,?,?)
+                (connection_id, priority, mode, updated_at, follow_up_on,
+                 follow_up_reason) VALUES (?,?,?,?,?,?)
                 ON CONFLICT(connection_id) DO UPDATE SET priority=excluded.priority,
-                mode=excluded.mode, updated_at=excluded.updated_at""",
-                (a.into, priority, mode, stamp))
+                mode=excluded.mode, updated_at=excluded.updated_at,
+                follow_up_on=excluded.follow_up_on,
+                follow_up_reason=excluded.follow_up_reason""",
+                (a.into, priority, mode, stamp, follow_up_on, follow_up_reason))
             conn.execute("DELETE FROM person_meta WHERE connection_id=?", (a.src,))
 
         merged_meta = meta_for(conn, a.into)
@@ -1000,9 +1331,11 @@ def cmd_unmerge(conn, a):
             conn.execute("DELETE FROM person_meta WHERE connection_id=?", (cid,))
             if snapshot["existed"]:
                 conn.execute("""INSERT INTO person_meta
-                    (connection_id, priority, mode, updated_at) VALUES (?,?,?,?)""",
+                    (connection_id, priority, mode, updated_at, follow_up_on,
+                     follow_up_reason) VALUES (?,?,?,?,?,?)""",
                     (cid, snapshot["priority"], snapshot["mode"],
-                     snapshot["updated_at"]))
+                     snapshot["updated_at"], snapshot["follow_up_on"],
+                     snapshot["follow_up_reason"]))
 
         conn.execute("UPDATE connections SET source=?, updated_at=? WHERE id=?",
                      (merge["from_source"], now(), merge["from_connection_id"]))
@@ -1035,8 +1368,20 @@ def main():
     cap.add_argument("--note"); cap.add_argument("--note-category", dest="note_category")
     cap.add_argument("--loop", help="something you owe them / a follow-up")
     cap.add_argument("--due", help="YYYY-MM-DD for the loop")
-    cap.add_argument("--priority", choices=["muted", "normal", "important", "critical"])
+    pri_group = cap.add_mutually_exclusive_group()
+    pri_group.add_argument("--priority",
+                           choices=["muted", "normal", "important", "critical"])
+    pri_group.add_argument("--prioritize", action="store_true",
+                           help="mark important (shorthand for --priority important)")
+    pri_group.add_argument("--deprioritize", action="store_true",
+                           help="mute from warmth/radar (reversible; follow-ups still fire)")
     cap.add_argument("--mode", help="collaborator|investor|friend|weak_tie|mentor|prospect")
+    fu_group = cap.add_mutually_exclusive_group()
+    fu_group.add_argument("--follow-up", dest="follow_up",
+                          help="'in 1 week', 'in 6 months', or YYYY-MM-DD")
+    fu_group.add_argument("--clear-follow-up", dest="clear_follow_up",
+                          action="store_true")
+    cap.add_argument("--follow-up-reason", dest="follow_up_reason")
     cap.add_argument("--source"); cap.add_argument("--source-ref", dest="source_ref")
 
     ing = sub.add_parser("ingest", help="add normalized event(s) as JSON")

@@ -17,9 +17,8 @@ No third-party packages — standard library only (Python 3.8+).
 """
 
 import argparse
-import json
 import os
-import sqlite3
+import sys
 import webbrowser
 from collections import Counter
 
@@ -29,50 +28,22 @@ DEFAULT_DB = os.path.join(REPO_ROOT, "data", "linkedin.db")
 TEMPLATE = os.path.join(HERE, "observatory", "template.html")
 DEFAULT_OUT = os.path.join(REPO_ROOT, "dashboard", "observatory.html")
 
+sys.path.insert(0, HERE)
+import trellis  # noqa: E402
+from observatory import common  # noqa: E402
+
 
 def load_people(db_path):
     if not os.path.exists(db_path):
         raise SystemExit(
             f"DB not found: {db_path}\n"
             "Run this first:  python3 scripts/linkedin_import.py")
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    # Trellis tables may not exist yet (observatory can run before trellis is used).
-    has_trellis = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='person_meta'"
-    ).fetchone() is not None
-    if has_trellis:
-        rows = conn.execute("""
-            SELECT c.*, pm.priority AS tr_priority,
-                   (SELECT content FROM notes n WHERE n.connection_id=c.id
-                    ORDER BY n.created_at DESC LIMIT 1) AS tr_note
-            FROM connections c LEFT JOIN person_meta pm ON pm.connection_id=c.id
-            WHERE c.source NOT LIKE 'merged_into_%'
-            ORDER BY c.connected_year DESC, c.id DESC""").fetchall()
-    else:
-        rows = conn.execute("""
-            SELECT *, NULL AS tr_priority, NULL AS tr_note
-            FROM connections ORDER BY connected_year DESC, id DESC""").fetchall()
+    # Note: building a page opens the DB read-write, because connect() runs the
+    # additive migration that guarantees people_v exists. It adds columns and
+    # recreates a view; it never rewrites your rows.
+    conn = trellis.connect(db_path)
+    people = common.load_people(conn)
     conn.close()
-    people = []
-    for r in rows:
-        people.append({
-            "name": r["full_name"],
-            "first": r["first_name"] or "",
-            "last": r["last_name"] or "",
-            "company": r["company"] or "",
-            "title": r["title"] or "",
-            "func": r["func"] or "Other",
-            "is_founder": int(r["is_founder"] or 0),
-            "rank": r["rank"] or 2,
-            "year": r["connected_year"],
-            "month": r["connected_month"],
-            "url": r["url"] or "",
-            "email": r["email"] or "",
-            # Trellis state baked in so the map reflects your memory:
-            "flag": 1 if (r["tr_priority"] in ("important", "critical")) else 0,
-            "note": r["tr_note"] or "",
-        })
     return people
 
 
@@ -112,19 +83,8 @@ def build_payload(people):
 
 
 def render(payload, out_path):
-    tpl = open(TEMPLATE, encoding="utf-8").read()
-    # compact JSON, safe for embedding inside a <script> block
-    data = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    data = (data.replace("</", "<\\/")
-                .replace("\u2028", "\\u2028")
-                .replace("\u2029", "\\u2029"))
-    if "__OBSERVATORY_DATA__" not in tpl:
-        raise SystemExit("Template is missing the __OBSERVATORY_DATA__ placeholder.")
-    html = tpl.replace("__OBSERVATORY_DATA__", data)
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(html)
-    return len(html)
+    return common.render_page(TEMPLATE, "__OBSERVATORY_DATA__", payload,
+                              out_path, active="map", nav_variant="overlay")
 
 
 def build_summary(people, payload):

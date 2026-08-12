@@ -20,9 +20,7 @@ Standard library only.
 """
 
 import argparse
-import json
 import os
-import sqlite3
 import sys
 import webbrowser
 
@@ -33,7 +31,8 @@ TEMPLATE = os.path.join(HERE, "observatory", "warmth_template.html")
 DEFAULT_OUT = os.path.join(REPO_ROOT, "dashboard", "warmth.html")
 
 sys.path.insert(0, HERE)
-from trellis import warmth_bucket, days_since  # noqa: E402
+import trellis  # noqa: E402
+from observatory import common  # noqa: E402
 
 
 def build_payload(db_path):
@@ -41,46 +40,22 @@ def build_payload(db_path):
         raise SystemExit(
             f"DB not found: {db_path}\n"
             "Run this first:  python3 scripts/linkedin_import.py")
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-
-    has_interactions = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='interactions'"
-    ).fetchone() is not None
-
-    if not has_interactions:
-        total = conn.execute(
-            "SELECT COUNT(*) FROM connections").fetchone()[0]
-        conn.close()
-        return {"people": [], "receipts": {}, "coverage": {
-            "contacts": total, "contacts_with_signal": 0,
-            "contacts_unmeasured": total, "muted_hidden": 0, "interactions": 0,
-            "earliest": None, "latest": None, "by_source": {}}}
+    conn = trellis.connect(db_path)  # migrates; people_v is always present
 
     people = []
-    muted = 0
-    for r in conn.execute("""
-        SELECT c.id, c.full_name, c.company, c.title, c.email, c.url, c.source,
-               m.priority, agg.last_on, agg.n
-        FROM connections c
-        LEFT JOIN person_meta m ON m.connection_id = c.id
-        LEFT JOIN (SELECT connection_id, MAX(occurred_on) AS last_on, COUNT(*) AS n
-                   FROM interactions GROUP BY connection_id) agg
-               ON agg.connection_id = c.id
-        WHERE c.source NOT LIKE 'merged_into_%'"""):
-        if (r["priority"] or "normal") == "muted":
-            muted += 1
-            continue
-        ds = days_since(r["last_on"])
+    for p in common.load_people(conn):
         people.append({
-            "id": r["id"], "name": r["full_name"] or "(unnamed)",
-            "company": r["company"] or "", "title": r["title"] or "",
-            "url": r["url"] or "",
-            "origin": r["source"] or "manual",
-            "flag": 1 if (r["priority"] or "normal") in ("important", "critical") else 0,
-            "last": r["last_on"], "days": ds,
-            "n": r["n"] or 0, "bucket": warmth_bucket(ds),
+            "id": p["id"], "name": p["name"],
+            "company": p["company"], "title": p["title"],
+            "url": p["url"],
+            "origin": p["origin"],
+            "flag": p["flag"],
+            "due": 1 if p["follow_up_due"] else 0,
+            "follow_up_on": p["follow_up_on"],
+            "last": p["last_on"], "days": p["days"],
+            "n": p["n"], "bucket": p["bucket"],
         })
+    muted = common.muted_count(conn)
 
     # Receipts: every interaction for everyone with signal. This is who/when
     # provenance only — summaries here are things like "email received", never
@@ -118,15 +93,8 @@ def build_payload(db_path):
 
 
 def render(payload, out_path):
-    with open(TEMPLATE, encoding="utf-8") as f:
-        template = f.read()
-    if "__WARMTH_DATA__" not in template:
-        raise SystemExit(f"Template is missing the __WARMTH_DATA__ token: {TEMPLATE}")
-    blob = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    blob = blob.replace("</", "<\\/").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(template.replace("__WARMTH_DATA__", blob))
+    common.render_page(TEMPLATE, "__WARMTH_DATA__", payload,
+                       out_path, active="warmth")
 
 
 def main():
