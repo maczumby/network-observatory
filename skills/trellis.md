@@ -51,6 +51,12 @@ python3 scripts/trellis.py unmerge --merge-id 3
 python3 scripts/reconcile.py                # regenerate the identity + contact-quality review queues
 ```
 
+**After a meeting, radar asks for you.** Feed calendar events in (see
+`calendar_crm.py`) and anyone you met in the last three weeks with no contact
+since shows up as *"you met them 6 days ago and haven't been in touch since"*.
+It goes quiet once you've been in touch — including a reply the same day — when
+you're seeing them again, when you set your own date, or after three weeks.
+
 **Priority and follow-ups are two different things.** Priority is how much
 someone matters (starred, normal, or deprioritized). A follow-up is a date to
 look again. They're independent on purpose: a due follow-up appears at the top

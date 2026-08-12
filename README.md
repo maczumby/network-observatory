@@ -112,8 +112,12 @@ two screens the same way:
 
 ```bash
 python3 scripts/warmth_export.py       # dashboard/warmth.html
+python3 scripts/reconcile.py           # look for identity matches
 python3 scripts/workbench_export.py    # dashboard/workbench.html  (People)
 ```
+
+The People screen reads the proposals `reconcile.py` writes, so run it first
+if you want the "same person as…?" suggestions.
 
 Each page is self-contained: fonts embedded, no external requests, works
 offline. Opened as files they're read-only, and anything you mark gives you a

@@ -66,8 +66,13 @@ contact signal in the database, build them all so the nav links go somewhere:
 
 ```bash
 python3 scripts/warmth_export.py       # dashboard/warmth.html — how alive each relationship is
+python3 scripts/reconcile.py           # find identity matches for the People screen
 python3 scripts/workbench_export.py    # dashboard/workbench.html — the People working list
 ```
+
+Run `reconcile.py` before the People screen: it reads the proposals that
+script writes rather than recomputing them, so skipping it means a People
+screen with no "same person as…?" matches and nothing explaining why.
 
 `serve.py` serves all three behind the same password, so it stays one link.
 
@@ -79,5 +84,5 @@ gracefully.
 
 ## Refreshing
 Re-run `/linkedin-import` with a newer export, then run this again. The output
-file overwrites in place. Your saved notes and flags live in the browser and
+file overwrites in place. Notes and flags saved in the browser (the default) live there and
 survive the rebuild.

@@ -40,6 +40,7 @@ optional and build on the earlier ones, so the map always comes first.
 
    ```bash
    python3 scripts/warmth_export.py       # dashboard/warmth.html
+   python3 scripts/reconcile.py           # identity proposals for the People screen
    python3 scripts/workbench_export.py    # dashboard/workbench.html  ("People")
    ```
 
@@ -154,6 +155,9 @@ every answer citing its source. Run it when the user asks relationship questions
   Trellis just writes.
 - "who did I leave hanging / who should I reach out to" → `trellis.py loops` / `radar`.
   Read the reason lines back; if radar is quiet, say so — don't invent reasons.
+  Radar orders what it finds: a follow-up date the user set comes first, then a
+  loop they owe, then **someone they met recently and haven't spoken to since**,
+  then cadence. That third one is what calendar data buys — see below.
 - "help me write to X" → `trellis.py context --name X`, then draft **only** from those
   facts. Never invent shared history. **Never send** — draft for the user to review.
 
@@ -188,6 +192,19 @@ trellis.py capture --name "Ada" --clear-follow-up
 this person" all land here. A **due follow-up fires even for a deprioritized
 person** — that's the point of two layers — and `radar` lists due follow-ups
 first. Never clear a follow-up on the user's behalf; the date is theirs.
+
+### After a meeting
+
+Once calendar events are ingested, `radar` surfaces anyone met in the last
+three weeks with no contact since — *"you met Ada 6 days ago and haven't been
+in touch since"*. Offer the two useful moves: a follow-up date
+(`--follow-up "in 1 week"`) or a draft built only from stored facts
+(`trellis.py context --name X`). Never send it.
+
+It deliberately stays silent when they've already been in touch (including the
+same day), when another meeting is booked, when the user set their own date,
+when the person is deprioritized, and after three weeks — a nudge that fires
+forever is one people learn to ignore.
 
 ### Keeping the graph honest
 
@@ -286,7 +303,7 @@ question, never the underlying database.
 
 The import is idempotent — keyed on each person's LinkedIn URL. When the user gets
 a fresh export later, run step 2 again (it updates people in place) and then step
-3. Their saved notes and reconnect flags live in the browser and survive rebuilds.
+3. Notes and reconnect flags saved in the browser survive rebuilds (and write straight to Trellis when served with --rw).
 
 ---
 

@@ -44,35 +44,42 @@ Google Testing authorizations can expire after seven days. The tester keeps the
 same Observatory MCP URL. When a metadata call fails, the endpoint returns a
 fresh `reconnectUrl`; the tester completes that link and retries.
 
-## Invite a tester
+## Onboard a tester
 
-On the operator Mac, the production token is stored in Keychain as
-`network-observatory-invite-admin`. Load it into the current shell without
-placing the value in command history:
+**There are no invite codes.** The Connect page asks for an email address and
+nothing else. The only gate is Google's tester list, and adding someone to it
+is a manual step in the Google Cloud console that nothing here can do for you:
 
-```bash
-export NETWORK_OBSERVATORY_INVITE_ADMIN_TOKEN="$(
-  security find-generic-password \
-    -s network-observatory-invite-admin -w
-)"
-export NETWORK_OBSERVATORY_CONNECT_URL='https://network-observatory-connect.mari-network-observatory.workers.dev'
-python3 onboarding/scripts/create_invite.py \
-  --url "$NETWORK_OBSERVATORY_CONNECT_URL" \
-  --label 'Tester name' \
-  --email 'their-google-address@example.com'
-```
+> Google Cloud console → **APIs & Services → OAuth consent screen → Audience →
+> Test users → Add users** → their exact Gmail address.
 
-The response contains a one-time `netobs_...` code. Send the Connect site and
-code privately. The code is shown only once and is bound to that exact email
-when `--email` is used.
+**Do this before they try.** Nothing checks the list — not the Connect page,
+not `/api/health`, not any script. Provisioning succeeds either way: someone
+who isn't on the list still sees a green "Ready", still gets a real setup
+command and a real 180-day token, and only discovers the problem when Google
+refuses them. Every tool call after that returns the same
+`Gmail metadata access is unavailable.` regardless of cause.
 
-The tester:
+The tester's path, **in the page's order** — the setup command comes before
+Google, and is shown only once:
 
-1. Opens the Connect site.
-2. Enters the email and invite.
-3. Approves Google on the unverified test screen.
-4. Runs the private `hermes mcp add` command shown by the site.
-5. Runs `hermes mcp test network-observatory-gmail`.
+1. Opens the Connect site and enters their Gmail address.
+2. Copies the **setup block** the page shows (it begins `Run this: hermes mcp
+   add …`) and pastes it to their agent. It contains a private URL that works
+   like a password. If you are screensharing a demo, pause the share here.
+3. Their agent runs the `hermes mcp add …` command from that block.
+4. Approves Google on the unverified test screen.
+5. **Starts a new chat** — the tools only exist in the next session — and runs
+   `hermes mcp test network-observatory-gmail` there.
+
+Google test authorizations expire after about seven days. Nothing warns them
+in advance; their agent gets a `reconnectUrl` on the next failed call, which
+they click to re-approve. The Observatory MCP URL itself does not change.
+
+Older versions of this flow used one-time `netobs_…` invite codes minted by
+`onboarding/scripts/create_invite.py`. The server still accepts a code if one
+is supplied, but the shipped page has no field for it and none is needed —
+ignore that script.
 
 The resulting MCP URL is a bearer credential. Send it only to the tester and
 never post it in a shared channel.
