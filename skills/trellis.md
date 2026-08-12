@@ -35,13 +35,28 @@ python3 scripts/warmth_export.py                     # bake the browsable table 
 # help me write to someone (agent drafts from this; never sends)
 python3 scripts/trellis.py context --name "Maya Chen"
 
+# mark someone, or park them until a date
+python3 scripts/trellis.py capture --name "Ada" --prioritize      # star them everywhere
+python3 scripts/trellis.py capture --name "Ada" --deprioritize    # hide from warmth/radar
+python3 scripts/trellis.py capture --name "Ada" --follow-up "in 6 months" \
+  --follow-up-reason "after their launch"
+python3 scripts/trellis.py capture --name "Ada" --clear-follow-up
+
 # housekeeping
 python3 scripts/trellis.py dupes            # possible duplicate people to confirm
 python3 scripts/trellis.py match            # tie email/calendar contacts to LinkedIn (proposals only)
 python3 scripts/trellis.py mute --name X    # hide a newsletter/system sender (reversible: unmute)
 python3 scripts/trellis.py merges           # audit active and undone identity merges
 python3 scripts/trellis.py unmerge --merge-id 3
+python3 scripts/reconcile.py                # regenerate the identity + contact-quality review queues
 ```
+
+**Priority and follow-ups are two different things.** Priority is how much
+someone matters (starred, normal, or deprioritized). A follow-up is a date to
+look again. They're independent on purpose: a due follow-up appears at the top
+of `radar` **even for a deprioritized person**, which is exactly what "not now,
+but check back after their launch" means. Both are reversible, and `radar` never
+clears a follow-up on its own — the date is yours.
 
 Warmth buckets are absolute and match the email-recency skill: active is 14
 days or fewer, warm 15 to 60, cooling 61 to 180, cold over 180. A person with

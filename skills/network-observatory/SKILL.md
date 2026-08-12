@@ -1,6 +1,7 @@
 ---
 name: network-observatory
-description: Build, update, query, and optionally enrich a private professional network from a LinkedIn export using the public Network Observatory repository. Use when a user asks Hermes or another coding agent to set up their network map, remember relationships with Trellis, connect the Network Observatory Gmail metadata endpoint, check email recency, ingest optional calendar or meeting events, resolve duplicate identities, or update an existing Observatory.
+version: 1.12.0
+description: Build, update, query, and optionally enrich a private professional network from a LinkedIn export using the public Network Observatory repository. Use when a user asks Hermes or another coding agent to set up their network map, warmth table, or People workbench; remember relationships with Trellis; connect the Network Observatory Gmail metadata endpoint; check email recency; ingest optional calendar or meeting events; prioritize, deprioritize, or set a follow-up date on someone; reconcile duplicate identities; or update an existing Observatory.
 ---
 
 # Network Observatory
@@ -28,6 +29,11 @@ Read `CLAUDE.md` before acting. Never commit `exports/`, `data/`, or `dashboard/
 5. Report the imported count, date span, and inferred fields plainly.
 
 Stop here successfully when the user does not want enrichment.
+
+The map is one of three screens that share a design and a nav bar: the **map**
+(who you know), **warmth** (how alive each relationship is), and **People** (the
+working list). Warmth and People only say something once there's contact signal,
+so build them after the first enrichment pass and hand over one link, not three.
 
 ## Connect optional Gmail metadata
 
@@ -108,6 +114,17 @@ creating anything from a message:
   'GDI Nova <nova@gdi.earth>' — is that a person you know?") instead of
   minting a contact.
 
+`scripts/contact_quality.py` encodes these same rules, so you can check a
+borderline address instead of guessing:
+
+```bash
+python3 scripts/contact_quality.py --name "Brex" --email "notifications@brex.com"
+```
+
+It answers `person`, `non_person`, or `ambiguous` with the signals behind the
+verdict. Anything `ambiguous` is a question for the user, not a decision for
+you.
+
 For every message that survives:
 
 1. Parse addresses from the allowed headers.
@@ -164,6 +181,47 @@ It answers with the last-contact date, direction, and bucket, and it never
 writes suggestions, so it is safe to run any time. Carry the coverage caveat
 whenever the sweep has not reached the end of the mailbox.
 
+## Build the People workbench
+
+```bash
+python3 scripts/workbench_export.py
+```
+
+`dashboard/workbench.html` is the working view: every trusted contact with their
+warmth, open loops, upcoming meetings, and status, plus filters for flagged
+people, due follow-ups, and email-only contacts still waiting to be reconciled.
+Expanding a row exposes the controls — prioritize, deprioritize, snooze to a
+date, and confirm "this is the same person as this LinkedIn profile".
+
+All three screens share one design and one nav, so build them together and hand
+over one link. Served read-only (the default), the controls save in the
+browser and produce a sync block the user pastes back to you — read it and run
+`trellis.py apply` with the JSON it contains. Served with `--rw` (which requires
+a saved password), the controls write straight to Trellis.
+
+## Prioritize, deprioritize, and set follow-ups
+
+Two independent layers. Importance:
+
+```bash
+python3 scripts/trellis.py capture --name "Ada Lovelace" --prioritize
+python3 scripts/trellis.py capture --name "Ada Lovelace" --deprioritize
+```
+
+And time — a date to look again, in the user's own words:
+
+```bash
+python3 scripts/trellis.py capture --name "Ada Lovelace" \
+  --follow-up "in 6 months" --follow-up-reason "after their launch"
+python3 scripts/trellis.py capture --name "Ada Lovelace" --clear-follow-up
+```
+
+"Remind me about them next week", "park this one for six months", and "stop
+surfacing this person" all map here. A due follow-up appears at the top of
+`radar` **even when the person is deprioritized** — that combination is the
+point. Both layers are reversible, and the date belongs to the user: never clear
+or move a follow-up on your own initiative.
+
 ## Ingest other optional sources
 
 Normalize Calendar or meeting events to Trellis only when the user's agent
@@ -184,6 +242,25 @@ For calendar events specifically:
    person worth tracking; attendees matching existing contacts ingest freely.
 4. Meetings count toward warmth automatically — a meeting last week makes a
    contact `active` exactly like an email would.
+
+`scripts/calendar_crm.py` applies all of these rules for you. Normalize the
+events your calendar tool returns into `{"event_id", "date", "attendees":
+[{"name", "email"}]}` and pipe them in:
+
+```bash
+python3 scripts/calendar_crm.py --file events.json
+```
+
+It splits them by tense: an event that already happened becomes an interaction
+("meeting held"), while one still ahead becomes a planned meeting shown on the
+People screen — the same person, one model. It skips the user's own and their
+teammates' addresses (`data/owner_identities.json`), meeting rooms and other
+non-person invitees, and oversized invitations. Re-running is idempotent, so
+sweeping the same window twice is safe.
+
+**After a meeting, offer the follow-up.** "You met Ada last Tuesday — want me to
+remind you to follow up in a week?" That's `--follow-up "in 1 week"`. Draft the
+message if they ask; never send it.
 
 ## How to talk about the graph
 
@@ -251,14 +328,33 @@ Prefer exact email matches. Treat name-only or fuzzy matches as candidates.
 Never merge automatically.
 
 ```bash
-python3 scripts/trellis.py dupes
-python3 scripts/trellis.py merge --keep-id KEEP --merge-id OTHER
+python3 scripts/reconcile.py                    # regenerate the review queues; changes nothing
+python3 scripts/trellis.py dupes                # possible duplicates, with evidence
+python3 scripts/trellis.py match                # LinkedIn candidates for email contacts
+python3 scripts/trellis.py merge --from OTHER_ID --into KEEP_ID
 python3 scripts/trellis.py merges
 python3 scripts/trellis.py unmerge --merge-id JOURNAL_ID
 ```
 
+`--from` is the record that gets folded in; `--into` is the one that survives.
 Show candidates to the user before `merge`. After a confirmed merge, mention
 the journal ID so the user can reverse it.
+
+`reconcile.py` writes two review files under `data/`:
+`linkedin_identity_review_queue.json` (email or calendar contacts that look like
+LinkedIn people already in the graph) and `contact_quality_review.json`
+(addresses that may not be people at all). Run it after any sweep. Entries
+marked **ambiguous** are questions for the user, with the evidence — never a
+decision to make on their behalf. `reconcile.py --apply` does only the safe,
+reversible part: muting the user's own and teammates' addresses and confidently
+non-human senders.
+
+Set up `data/owner_identities.json` early, or the user's own inbox becomes part
+of their network:
+
+```json
+{"owner_emails": ["them@example.com"], "owner_domains": ["theircompany.com"]}
+```
 
 ## Keep the trust contract
 

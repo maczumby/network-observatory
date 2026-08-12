@@ -1,13 +1,30 @@
 # Network Observatory
 
-Turn your LinkedIn export into a private map of your professional network, a
+Turn your LinkedIn export into a private map of your professional network — a
 star field of every person you're connected to, that you can pan, search, and
-filter. The LinkedIn map runs entirely on your own machine. Optional Gmail
-enrichment uses a separate metadata-only connection that you explicitly approve.
+filter — and then into a small personal CRM your AI agent can actually reason
+over. It runs on your own machine. Optional Gmail enrichment uses a separate
+metadata-only connection that you explicitly approve.
 
 The idea: your network is a kind of memory, and right now it's locked in a CSV.
-This gives your AI agent a database it can reason over, and gives you a way to
+This gives your agent a database it can reason over, and gives you a way to
 actually see who you know.
+
+### Three screens, one memory
+
+| | |
+|---|---|
+| **Map** | Who you know. Every connection as a star, clustered by company, role, seniority, or era. |
+| **Warmth** | How alive each relationship is, with the receipts. "No data" is never dressed up as "cold". |
+| **People** | The working list: prioritize someone, snooze them to a date, or confirm that an email contact is a LinkedIn person you already know. |
+
+They share one design and link to each other, so it's one link to open, not
+three. The map alone works with nothing but your LinkedIn export; the other two
+fill in as you connect optional sources.
+
+Your agent drives all of it in plain language — *"who have I gone cold on?"*,
+*"remind me about Ada in six months"*, *"who did I meet last week?"* — and the
+screens are where you see the answers.
 
 ## Give this to your agent as one link
 
@@ -90,6 +107,27 @@ python3 scripts/observatory_export.py --open
 Step 1 creates `data/linkedin.db`. Step 2 creates `dashboard/observatory.html`, a
 single file you can open any time or send to yourself.
 
+Once there's contact signal in the database (see Trellis below), build the other
+two screens the same way:
+
+```bash
+python3 scripts/warmth_export.py       # dashboard/warmth.html
+python3 scripts/workbench_export.py    # dashboard/workbench.html  (People)
+```
+
+Each page is self-contained: fonts embedded, no external requests, works
+offline. Opened as files they're read-only, and anything you mark gives you a
+block of text to paste back to your agent. To make the controls write directly,
+serve them with the write API on:
+
+```bash
+python3 scripts/serve.py --set-password "something long"
+python3 scripts/serve.py --rw --rw-local-only
+```
+
+`--rw` needs a saved password, and `--rw-local-only` means people you share the
+viewing link with can look but not change anything.
+
 **Running through a hosted agent** (like Agent37/Hermes) instead of on your own
 machine? The agent can't open a browser on your screen, so instead of `--open` it
 serves the map (`scripts/serve.py`) and exposes it on a public link it verifies
@@ -169,6 +207,41 @@ contact's last-contact date, who wrote last, a temperature label, and the
 receipts behind each row. It leads with coverage — how much of your graph is
 actually measured — and shows unmeasured people as "no data", never "cold".
 
+### Marking people, and coming back to them
+
+Two separate things, because they answer different questions — how much someone
+matters, and when to look again:
+
+```bash
+python3 scripts/trellis.py capture --name "Ada" --prioritize
+python3 scripts/trellis.py capture --name "Ada" --deprioritize
+python3 scripts/trellis.py capture --name "Ada" --follow-up "in 6 months" \
+    --follow-up-reason "after their launch"
+```
+
+A due follow-up surfaces in `radar` **even if you deprioritized the person** —
+"not now, but check back in six months" is the whole point. Both are reversible,
+and you can do all of it by asking your agent in plain language, or from the
+People screen.
+
+### Keeping it honest
+
+Sweeps mint contacts from addresses, and addresses lie. Two commands keep the
+graph clean, and neither one decides anything for you:
+
+```bash
+python3 scripts/reconcile.py           # regenerate the review queues; changes nothing
+python3 scripts/reconcile.py --apply   # mute your own addresses + obvious non-people
+```
+
+The first writes two review files under `data/`: email contacts that look like
+LinkedIn people you already know, and addresses that may not be people at all.
+Merging identities is always your call and always reversible. Tell it who you
+are first — put your addresses (and your team's domain) in
+`data/owner_identities.json`, or your own inbox becomes part of your network.
+
+The reasoning behind all of this is in [`docs/DATA_INTEGRITY.md`](docs/DATA_INTEGRITY.md).
+
 It works from your LinkedIn graph and what you tell it, and gets richer if your agent
 feeds it meetings, email, or calendar. Trellis stores no connector tokens and keeps its
 memory local. When you flag
@@ -214,6 +287,22 @@ you a new zip instead of a link).
 
 - Python 3.8 or newer (standard library only — nothing to `pip install`)
 - A web browser to view the map
+
+## Changing it
+
+Everything here is meant to be read and modified. `CLAUDE.md` explains how the
+pieces fit together; `docs/DATA_INTEGRITY.md` is the contract to read before
+touching anything about people, identity, or status.
+
+There's a test suite, and it's the fastest way to know you haven't broken
+someone else's database:
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+Standard library, no test runner to install, no CI — so run it yourself before
+you ship a change.
 
 ## License
 

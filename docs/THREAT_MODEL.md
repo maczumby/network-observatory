@@ -44,6 +44,33 @@ trust boundary.
   and does not use Next image optimization. Recheck and remove this exception
   when stable patched transitive releases become available.
 
+## The dashboard write API (`serve.py --rw`)
+
+By default `serve.py` only reads: the sole POST it accepts is `/login`, and the
+screens fall back to a copy-paste sync block. `--rw` adds two write endpoints
+(`/api/person`, `/api/merge`) so the screens can set priority, set a follow-up
+date, add a note, or confirm an identity merge.
+
+Boundary: this is a local tool serving a local SQLite file. The write API's job
+is to make sure only the person who already holds the viewing password, in a
+real browser session, on this origin, can change that file.
+
+| Threat | Control |
+|---|---|
+| Open server + write API | `--rw` refuses to start without a saved password. |
+| Unauthenticated writes | Every write requires the signed HttpOnly session cookie; no cookie, `401`. |
+| Cross-site request forgery | `SameSite=Lax` is **not** sufficient on localhost, because ports don't factor into "site" — so writes additionally require `Content-Type: application/json` (which an HTML form cannot send cross-origin without a CORS preflight that is never granted), and an `Origin` header, when present, must match `Host`. |
+| Cross-origin reads of responses | No CORS headers are ever emitted. |
+| DNS rebinding | A rebound origin has a different cookie jar, so it holds no session; combined with the password requirement above, writes fail closed. |
+| Resource exhaustion | Bodies cap at 16 KB; writes are rate-limited per client IP. |
+| Shared link, unwanted edits | `--rw-local-only` accepts writes from loopback only, so viewers with the password can look but not change. |
+| A bad write | Priority and follow-ups are plain reversible values; merges go through the journal and `unmerge` restores them. |
+
+**Residual risk, stated plainly:** with `--rw` and without `--rw-local-only`,
+the viewing password is also a writing password. Anyone you share the link and
+password with can mark, snooze, and merge people in your graph. Share a
+read-only link (the default) unless you specifically want otherwise.
+
 ## Revocation and recovery
 
 The operator can revoke the hashed endpoint token and delete its Composio
