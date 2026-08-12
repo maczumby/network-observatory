@@ -316,16 +316,22 @@ class IdentityMatchingScalesTest(unittest.TestCase):
                                     "bound rejected a pair that would have matched")
 
     def test_building_the_people_screen_does_no_matching(self):
-        """The screen reads the queue reconcile writes. If it ever recomputes,
-        this test gets slow — and a slow build is the bug coming back."""
-        import time
+        """The screen reads the queue reconcile writes. Asserting the matcher
+        is never called says exactly that — a wall-clock budget would only say
+        'this machine was busy' when something else is running."""
         import workbench_export
-        start = time.time()
-        payload = workbench_export.build_payload(self.db)
-        elapsed = time.time() - start
+        called = []
+        real_match, real_dupes = trellis._match_candidates, trellis._dupe_pairs
+        trellis._match_candidates = lambda *a, **k: called.append("match") or []
+        trellis._dupe_pairs = lambda *a, **k: called.append("dupes") or []
+        try:
+            payload = workbench_export.build_payload(self.db)
+        finally:
+            trellis._match_candidates, trellis._dupe_pairs = real_match, real_dupes
+        self.assertEqual(called, [],
+                         f"the page build ran {called} — matching is back on the "
+                         f"render path")
         self.assertEqual(payload["candidates"], {})
-        self.assertLess(elapsed, 2.0,
-                        f"page build took {elapsed:.1f}s — is it matching again?")
 
 
 if __name__ == "__main__":
