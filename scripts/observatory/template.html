@@ -8,7 +8,7 @@
   /* Fonts embedded as base64 so the page is fully self-contained (no network calls). */
 /*__OBS_FONTS__*/
 /*__OBS_TOKENS__*/
-  html,body{margin:0;height:100%;background:#04050b;overflow:hidden;}
+  html,body{margin:0;height:100%;background:var(--obs-sky-2);overflow:hidden;}
   *{box-sizing:border-box;}
   ::selection{background:rgba(138,180,255,0.3);}
   input:focus,textarea:focus{outline:none;}
@@ -19,7 +19,7 @@
   @keyframes obsSlide{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:translateX(0)}}
   @keyframes obsRise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
   @keyframes obsPop{from{opacity:0;transform:scale(.965) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}
-  .obs-root{position:fixed; inset:0; overflow:hidden; background:radial-gradient(130% 120% at 50% -12%, #10152e 0%, #080b18 46%, #04050b 100%); color:#e9ecf5; font-family:'Hanken Grotesk',system-ui,sans-serif; -webkit-font-smoothing:antialiased;}
+  .obs-root{position:fixed; inset:0; overflow:hidden; background:radial-gradient(130% 120% at 50% -12%, var(--obs-sky-0) 0%, var(--obs-sky-1) 46%, var(--obs-sky-2) 100%); color:var(--obs-ink); font-family:var(--obs-font-body); -webkit-font-smoothing:antialiased;}
   /* Real-data hardening: long company / title strings must never overflow a panel. */
   .obs-wrap-any{overflow-wrap:anywhere; word-break:break-word;}
   /* Narrow screens: shrink the header so it can't collide with the centered search. */
@@ -29,6 +29,7 @@
   }
   @media (max-width:900px){
     .obs-search{width:min(400px,46vw) !important;}
+    .obs-stats{display:none !important;}  /* collides with the centered search */
   }
 </style>
 </head>
@@ -46,7 +47,7 @@
   <div style="position:absolute; top:var(--obs-nav-h); left:0; right:0; display:flex; align-items:flex-start; justify-content:space-between; padding:16px 26px 22px; z-index:20; pointer-events:none;">
     <div style="pointer-events:auto;">
       <div style="display:flex; align-items:center; gap:9px;">
-        <div style="width:9px;height:9px;border-radius:50%;background:#f5c77e;box-shadow:0 0 13px 2px rgba(245,199,126,0.75);"></div>
+        <div style="width:9px;height:9px;border-radius:50%;background:var(--obs-star);box-shadow:0 0 13px 2px rgba(245,199,126,0.75);"></div>
         <div style="font-family:'IBM Plex Mono',monospace; font-size:11.5px; letter-spacing:0.24em; color:#aeb6d0;">OBSERVATORY</div>
       </div>
       <div class="obs-title" style="font-family:'Instrument Serif',serif; font-size:25px; line-height:1.0; margin-top:6px; color:#eef1f8; letter-spacing:0.01em;">Your network</div>
@@ -54,7 +55,7 @@
       <button data-act="openReading" style="margin-top:10px; display:inline-flex; align-items:center; gap:7px; background:rgba(245,199,126,0.1); border:1px solid rgba(245,199,126,0.32); color:#f2d29a; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.08em; padding:6px 11px; border-radius:9px; cursor:pointer;">✦ READ MY NETWORK</button>
       <button id="obs-sync-btn" data-act="openSync" style="display:none; margin-top:10px; margin-left:8px; align-items:center; gap:7px; background:rgba(138,180,255,0.12); border:1px solid rgba(138,180,255,0.4); color:#cddaff; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.08em; padding:6px 11px; border-radius:9px; cursor:pointer;"></button>
     </div>
-    <div style="pointer-events:auto; text-align:right; font-family:'IBM Plex Mono',monospace; font-size:12px; color:#8b93b0; line-height:1.75;">
+    <div class="obs-stats" style="pointer-events:auto; text-align:right; font-family:var(--obs-font-mono); font-size:12px; color:var(--obs-ink-faint); line-height:1.75;">
       <div><span id="stat-people" style="color:#e9ecf5;"></span> connections</div>
       <div><span id="stat-companies" style="color:#e9ecf5;"></span> companies · <span id="stat-span"></span></div>
     </div>
@@ -178,7 +179,7 @@ App.prototype = {
       var key = (d.url&&d.url.trim()) ? ('u:'+d.url.trim().toLowerCase().replace(/\/+$/,''))
                                       : ('n:'+(d.name||'').toLowerCase()+'|'+company.toLowerCase());
       var p = {
-        id:id++, pkey:key, name:d.name, first:d.first||'', last:d.last||'', company:company, title:title,
+        id:id++, pkey:key, dbid:(d.id!=null?d.id:null), priority:d.priority||'normal', due:!!d.follow_up_due, fuOn:d.follow_up_on||'', name:d.name, first:d.first||'', last:d.last||'', company:company, title:title,
         func:d.func||'Other', isFounder:!!d.is_founder, rank:d.rank||2, year:yr, month:month,
         era:era, eraIdx:eraIdx, url:d.url||'', email:d.email||'',
         connectedLabel: (month? self.MONTHS[month-1]+' ' : '') + (year||''),
@@ -369,7 +370,7 @@ App.prototype = {
     this._raf=requestAnimationFrame(function tk(){ self.tick(); self._raf=requestAnimationFrame(tk); });
   },
   resize:function(){ var cv=this.canvas; if(!cv) return; var r=cv.getBoundingClientRect(); this.cssW=r.width; this.cssH=r.height; var dpr=Math.min(2,window.devicePixelRatio||1); this.dpr=dpr; cv.width=Math.max(1,Math.round(r.width*dpr)); cv.height=Math.max(1,Math.round(r.height*dpr)); this.buildBg(); this.fit(true); },
-  buildBg:function(){ var c=this.ctx, w=this.cssW, h=this.cssH; var g=c.createRadialGradient(w*0.5,h*-0.1,0,w*0.5,h*-0.1,Math.max(w,h)*1.25); g.addColorStop(0,'#121a38'); g.addColorStop(0.5,'#080c18'); g.addColorStop(1,'#04050b'); this.bgGrad=g; },
+  buildBg:function(){ var c=this.ctx, w=this.cssW, h=this.cssH; var g=c.createRadialGradient(w*0.5,h*-0.1,0,w*0.5,h*-0.1,Math.max(w,h)*1.25); var sky=(this.CHROME&&this.CHROME.sky)||['#121a38','#080c18','#04050b']; g.addColorStop(0,sky[0]); g.addColorStop(0.5,sky[1]); g.addColorStop(1,sky[2]); this.bgGrad=g; },
   tick:function(){
     var c=this.ctx; if(!c||!this.cssW){ return; }
     var rm=this._mq&&this._mq.matches; var k=rm?1:0.15, ck=rm?1:0.11; var cam=this.cam;
@@ -400,7 +401,7 @@ App.prototype = {
     c.globalAlpha=1;
     this.drawLabels(c,w,h);
     if(this.hoverId!=null) this.drawRing(this.hoverId,'rgba(255,255,255,0.6)',false);
-    if(this.state.selectedId!=null) this.drawRing(this.state.selectedId,'#8ab4ff',true);
+    if(this.state.selectedId!=null) this.drawRing(this.state.selectedId,(this.CHROME&&this.CHROME.accent)||'#8ab4ff',true);
   },
   drawLabels:function(c,w,h){ var cam=this.cam; c.save(); c.textBaseline='middle';
     var self=this;
@@ -444,7 +445,7 @@ App.prototype = {
   applyReading:function(facets){ this.state.facets=facets; this.state.special=null; this.state.query=''; this.state.showReading=false; this.state.openFacet=null; var inp=document.getElementById('obs-search-input'); if(inp) inp.value=''; this.computeMatch(); this.render(); this.renderReading(); },
   applyReadingSpecial:function(s){ this.state.facets={}; this.state.special=s; this.state.query=''; this.state.showReading=false; this.state.openFacet=null; var inp=document.getElementById('obs-search-input'); if(inp) inp.value=''; this.computeMatch(); this.render(); this.renderReading(); },
   onNote:function(v){ var p=this.people[this.state.selectedId]; if(p){ this.notes[p.pkey]=v; try{ localStorage.setItem('obs_notes',JSON.stringify(this.notes)); }catch(e){} this.refreshSyncBtn(); } },
-  toggleReconnect:function(){ var p=this.people[this.state.selectedId]; if(!p) return; this.recon[p.pkey]=!this.recon[p.pkey]; try{ localStorage.setItem('obs_recon',JSON.stringify(this.recon)); }catch(e){} var b=document.getElementById('obs-recon-btn'); if(b){ var on=!!this.recon[p.pkey]; b.textContent=on?'✓ Flagged to reconnect':'Flag to reconnect'; b.setAttribute('style', this.reconStyle(on)); } this.refreshSyncBtn(); },
+  toggleReconnect:function(){ var p=this.people[this.state.selectedId]; if(!p) return; this.recon[p.pkey]=!this.recon[p.pkey]; if(document.documentElement.getAttribute('data-obs-mode')==='live'&&p.dbid!=null){ try{ fetch('/api/person',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'priority',id:p.dbid,name:p.name,value:this.recon[p.pkey]?'important':'normal'})}).catch(function(){}); }catch(e){} } try{ localStorage.setItem('obs_recon',JSON.stringify(this.recon)); }catch(e){} var b=document.getElementById('obs-recon-btn'); if(b){ var on=!!this.recon[p.pkey]; b.textContent=on?'✓ Flagged to reconnect':'Flag to reconnect'; b.setAttribute('style', this.reconStyle(on)); } this.refreshSyncBtn(); },
 
   // ---------------- sync to agent (map -> Trellis) ----------------
   collectSync:function(){
@@ -617,6 +618,8 @@ App.prototype = {
     h+='<div style="margin-top:17px;"><div style="font-family:\'IBM Plex Mono\',monospace; font-size:9.5px; color:#7f88a6; letter-spacing:0.13em; margin-bottom:7px;">YOUR NOTE — HOW YOU KNOW THEM</div>';
     h+='<textarea id="obs-note" data-act="note" placeholder="Met at… · introduced by… · remember to…" style="width:100%; min-height:90px; resize:vertical; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:11px; padding:11px 13px; color:#eef1f8; font-family:inherit; font-size:13.5px; line-height:1.5;">'+esc(note)+'</textarea></div>';
     h+='<button id="obs-recon-btn" data-act="reconnect" style="'+this.reconStyle(on)+'">'+(on?'✓ Flagged to reconnect':'Flag to reconnect')+'</button>';
+    if(sel.due||sel.fuOn){ h+='<div style="margin-top:12px; font-size:12.5px; color:'+(sel.due?'var(--obs-due)':'#aab2cc')+';">'+(sel.due?'◷ Follow-up due — set for ':'◷ Follow-up set for ')+esc(sel.fuOn)+'</div>'; }
+    if(sel.dbid!=null){ h+='<div style="margin-top:14px; font-size:12.5px;"><a href="workbench.html#p'+sel.dbid+'" style="color:var(--obs-accent); text-decoration:none;">Manage on the People screen →</a><span style="color:#556"> · </span><a href="warmth.html#p'+sel.dbid+'" style="color:var(--obs-accent); text-decoration:none;">Evidence on Warmth →</a></div>'; }
     h+='<div style="margin-top:17px; font-size:11px; color:rgba(150,159,190,0.55); line-height:1.55;">Straight from your export. Function &amp; seniority are inferred from the job title — nothing else was added.</div>';
     h+='</div></div>';
     el.innerHTML=h;
@@ -709,6 +712,13 @@ function wire(app){
 // ---- boot ----
 function boot(){
   var app=new App();
+  var css=getComputedStyle(document.documentElement);
+  app.CHROME={
+    accent:(css.getPropertyValue('--obs-accent')||'').trim()||'#8ab4ff',
+    sky:[(css.getPropertyValue('--obs-sky-0')||'').trim()||'#121a38',
+         (css.getPropertyValue('--obs-sky-1')||'').trim()||'#080c18',
+         (css.getPropertyValue('--obs-sky-2')||'').trim()||'#04050b']
+  };
   try{ app.notes=JSON.parse(localStorage.getItem('obs_notes')||'{}'); }catch(e){ app.notes={}; }
   try{ app.recon=JSON.parse(localStorage.getItem('obs_recon')||'{}'); }catch(e){ app.recon={}; }
   app.build();
@@ -717,6 +727,7 @@ function boot(){
   wire(app);
   app.render();
   app.renderReading();
+  window.app=app;  // console + QA access
   app.refreshSyncBtn();
   app.initCanvas();
   window.__obs=app;

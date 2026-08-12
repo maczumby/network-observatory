@@ -46,6 +46,11 @@
   --obs-fs-micro: 11px;
   --obs-ls-label: 0.22em;
 
+  /* the map's sky — gradient stops shared by CSS and the canvas backdrop */
+  --obs-sky-0: #111737;
+  --obs-sky-1: #090c19;
+  --obs-sky-2: #05060e;
+
   /* space & shape */
   --obs-sp-1: 4px; --obs-sp-2: 8px; --obs-sp-3: 12px;
   --obs-sp-4: 16px; --obs-sp-5: 24px; --obs-sp-6: 36px;
