@@ -5,23 +5,32 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Warmth — Network Observatory</title>
 <style>
+/*__OBS_FONTS__*/
+/*__OBS_TOKENS__*/
+  /* Local aliases onto the shared token system (scripts/observatory/tokens.css). */
   :root {
-    --bg: #14160f; --card: #1e2119; --line: rgba(252,246,220,0.12);
-    --ink: #fcf6dc; --ink-dim: rgba(252,246,220,0.62); --accent: #f19779;
-    --active: #9ed69b; --warm: #f1c179; --cooling: #9fb8c9; --cold: #7d8896;
+    --bg: var(--obs-bg); --card: var(--obs-bg-raised); --line: var(--obs-line);
+    --ink: var(--obs-ink); --ink-dim: var(--obs-ink-dim); --accent: var(--obs-accent);
+    --active: var(--obs-w-active); --warm: var(--obs-w-warm);
+    --cooling: var(--obs-w-cooling); --cold: var(--obs-w-cold);
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--ink);
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font: 14px/1.5 var(--obs-font-body);
   }
   header {
     display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
-    padding: 26px 28px 0;
+    padding: 22px 28px 0;
   }
-  h1 { margin: 0; font-size: 22px; letter-spacing: -0.02em; }
-  header a { color: var(--accent); text-decoration: none; font-size: 14px; }
-  header a:hover { text-decoration: underline; }
+  h1 {
+    margin: 0; font-family: var(--obs-font-display); font-weight: 400;
+    font-size: var(--obs-fs-title); letter-spacing: 0.01em;
+  }
+  h1 + .tagline {
+    font-family: var(--obs-font-display); font-style: italic;
+    font-size: 14px; color: var(--ink-dim);
+  }
   .coverage {
     margin: 14px 28px 0; padding: 14px 16px; border: 1px solid var(--line);
     border-radius: 10px; background: var(--card); font-size: 14px;
@@ -65,7 +74,8 @@
     background: none; color: var(--ink-dim);
     border: 1px dashed rgba(252,246,220,0.35);
   }
-  .flagstar { color: var(--accent); }
+  .flagstar { color: var(--obs-star); }
+  .duemark { color: var(--obs-due); }
   .name a { color: var(--ink); text-decoration: none; }
   .name a:hover { color: var(--accent); }
   .sub { color: var(--ink-dim); font-size: 13px; }
@@ -85,9 +95,10 @@
 </style>
 </head>
 <body>
+<!--__OBS_NAV__-->
 <header>
   <h1>Warmth</h1>
-  <a href="observatory.html">← back to the map</a>
+  <span class="tagline">how alive each relationship is</span>
 </header>
 <div id="app"></div>
 <script>
@@ -133,7 +144,7 @@ window.WARMTH = __WARMTH_DATA__;
     "Click a row with signal to see its evidence.</footer>";
   app.innerHTML = html;
 
-  var BUCKETS = ["all", "active", "warm", "cooling", "cold", "no data", "flagged", "email-only"];
+  var BUCKETS = ["all", "active", "warm", "cooling", "cold", "no data", "flagged", "follow-up due", "email-only"];
   var state = { bucket: "all", q: "", sortK: "days", sortAsc: true };
 
   var chips = document.getElementById("chips");
@@ -171,9 +182,11 @@ window.WARMTH = __WARMTH_DATA__;
   function draw() {
     var rows = data.people.filter(function (p) {
       if (state.bucket === "flagged" && !p.flag) return false;
+      if (state.bucket === "follow-up due" && !p.due) return false;
       if (state.bucket === "email-only" &&
           (p.origin === "linkedin" || !p.n)) return false;
       if (state.bucket !== "all" && state.bucket !== "flagged" &&
+          state.bucket !== "follow-up due" &&
           state.bucket !== "email-only" && p.bucket !== state.bucket) return false;
       if (state.q && (p.name + " " + p.company).toLowerCase().indexOf(state.q) < 0)
         return false;
@@ -200,7 +213,9 @@ window.WARMTH = __WARMTH_DATA__;
         ? ' <span class="sub" title="Created from a sweep; not yet tied to a LinkedIn connection">· email only</span>'
         : "";
       return '<tr class="person" id="p' + p.id + '" data-id="' + p.id + '"><td class="name">' +
-        (p.flag ? '<span class="flagstar" title="flagged">★</span> ' : "") + nameCell +
+        (p.flag ? '<span class="flagstar" title="flagged">★</span> ' : "") +
+        (p.due ? '<span class="duemark" title="follow-up due ' + esc(p.follow_up_on || "") + '">◷</span> ' : "") +
+        nameCell +
         (p.title ? ' <span class="sub">· ' + esc(p.title) + "</span>" : "") + originTag + "</td>" +
         "<td>" + esc(p.company) + "</td>" +
         '<td class="num">' + last + "</td>" +
