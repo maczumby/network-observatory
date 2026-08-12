@@ -92,8 +92,11 @@ export default function Home() {
             <div>
               <h2>Sign in</h2>
               <p>
-                Enter the Gmail you want connected. You need to be on the tester
-                list first; if you're not sure, you probably are.
+                Enter the Gmail you want connected &mdash; the exact address,
+                since that&rsquo;s what Google checks. While this is in beta,
+                Mari adds each address by hand before it will work. If she
+                hasn&rsquo;t added yours yet, you&rsquo;ll get as far as
+                Google and be turned away; step 03 says what to do then.
               </p>
             </div>
           </div>

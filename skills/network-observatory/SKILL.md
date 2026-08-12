@@ -22,10 +22,27 @@ Read `CLAUDE.md` before acting. Never commit `exports/`, `data/`, or `dashboard/
 
 ## Build the LinkedIn map first
 
-1. Find the user's LinkedIn Basic export.
+**Check they actually have the export before anything else.** It is the one
+thing you cannot do for them and the one thing with a delay: LinkedIn emails it
+out, usually within minutes but sometimes hours. If they don't have it yet, say
+so immediately and give them the steps rather than waiting:
+
+> On LinkedIn: **Me → Settings & Privacy → Data Privacy → Get a copy of your
+> data**. Pick the **Basic** archive (the one that includes Connections), not
+> the full one. LinkedIn emails you a zip; forward or upload it here when it
+> lands and we'll pick this straight back up.
+
+Then, once they have it:
+
+1. Get the export file to where you can read it. On a hosted agent the user
+   uploads or attaches it — never tell them to "put it in the exports/ folder",
+   which is a directory on your machine that they cannot see.
 2. Run `python3 scripts/linkedin_import.py [PATH]`.
 3. Run `python3 scripts/observatory_export.py`.
-4. Follow the local or hosted sharing flow in `CLAUDE.md`.
+4. Follow the local or hosted sharing flow in `CLAUDE.md`. If you serve the
+   pages, **offer a password in the same breath** — the link is public until
+   there is one (`python3 scripts/serve.py --set-password "…"`), and give it to
+   them privately, never in a shared channel.
 5. Report the imported count, date span, and inferred fields plainly.
 
 Stop here successfully when the user does not want enrichment.
@@ -49,20 +66,30 @@ After the map is built, offer this once: "Want to add Gmail metadata search?
 It can only see who you emailed and when, never the messages themselves."
 If the user says yes:
 
+Walk them through it in the page's own order — **the setup block comes before
+Google, and it is shown only once.** Sending them to Google first loses it.
+
 1. Send the user to
-   `https://network-observatory-connect.mari-network-observatory.workers.dev`.
-   They enter the Gmail they want connected (no invite code needed) and
-   authorize their own Google account in the browser. Google will warn the
-   app is unverified; that is expected while it is in Testing.
-2. If Google refuses with "access denied", they are not on the tester list
+   `https://network-observatory-connect.mari-network-observatory.workers.dev`
+   and have them enter the Gmail they want connected (there is no invite code).
+2. The page then shows **Step 1 — a block of text beginning `Run this: hermes
+   mcp add …`**. Ask them to copy the whole block and paste it to you *before
+   they touch anything else on the page*. It contains a private URL that acts
+   like a password and is never shown again. If you are on a screenshare, say
+   so — it will be visible to everyone watching, and it is worth pausing the
+   share for this step.
+3. Run the `hermes mcp add …` command from that block.
+4. Now have them click **Step 2 — Connect my Google account** and approve in
+   the browser. Google warns that the app is unverified; that is expected while
+   it is in Testing.
+5. If Google refuses with "access denied", they are not on the tester list
    yet. Have them send the exact Gmail they used to the operator
    (mari@filament.dm), wait for her confirmation, then retry the same page.
    There are at most 100 tester seats, and access needs a one-click
    reconnect every 7 days until Google verification lands.
-3. When the page shows a command starting `hermes mcp add`, ask the user to
-   paste it to you, then run it. The new tools appear in your NEXT session,
-   not this one — tell the user that, have them start a fresh chat, and test
-   there:
+6. The new tools appear in your **NEXT** session, not this one — the Google
+   "You're done" page cannot know that, so say it plainly: have them start a
+   fresh chat and test there.
 
 ```bash
 hermes mcp test network-observatory-gmail
