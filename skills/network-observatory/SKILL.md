@@ -91,11 +91,11 @@ Google, and it is shown only once.** Sending them to Google first loses it.
    "You're done" page cannot know that, so say it plainly: have them start a
    fresh chat and test there.
 
-```bash
-hermes mcp test network-observatory-gmail
-```
+   ```bash
+   hermes mcp test network-observatory-gmail
+   ```
 
-4. When the test passes, record durably — in your memory, notes, or runbook —
+7. When the test passes, record durably — in your memory, notes, or runbook —
    that email metadata search is installed via `network-observatory-gmail`
    and is the only sanctioned Gmail path for this user: metadata-only by
    design, never open a default Gmail or Composio connection for them.
