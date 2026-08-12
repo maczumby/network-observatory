@@ -130,8 +130,8 @@ window.WARMTH = __WARMTH_DATA__;
     cov.contacts_unmeasured + ' are <strong>unmeasured, not cold</strong> — ' +
     "the sweep hasn't reached them (or they never emailed you at this address)." +
     (cov.muted_hidden ? " " + cov.muted_hidden +
-      " muted sender" + (cov.muted_hidden === 1 ? "" : "s") +
-      " (newsletters, notifications) are hidden." : "") +
+      " muted sender" + (cov.muted_hidden === 1 ? " is" : "s are") +
+      " hidden (newsletters, notifications)." : "") +
     (cov.unreconciled_hidden ? " " + cov.unreconciled_hidden +
       " swept address" + (cov.unreconciled_hidden === 1 ? " is" : "es are") +
       " also hidden until there's a real interaction behind " +
