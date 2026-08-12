@@ -1021,7 +1021,9 @@ def _norm(s):
     return re.sub(r"[^a-z ]", "", (s or "").lower()).strip()
 
 
-def cmd_dupes(conn, a):
+def _dupe_pairs(conn):
+    """(a, b, evidence, confidence) tuples for possible duplicate people.
+    Proposals only — nothing is merged here."""
     people = conn.execute(
         "SELECT * FROM connections WHERE source NOT LIKE 'merged_into_%'"
     ).fetchall()
@@ -1051,6 +1053,11 @@ def cmd_dupes(conn, a):
                                       _norm(b1["full_name"])).ratio()
                 if sim >= 0.82 and a1["full_name"] != b1["full_name"]:
                     pairs.append((a1, b1, f"similar names at {a1['company']}", "possible"))
+    return pairs
+
+
+def cmd_dupes(conn, a):
+    pairs = _dupe_pairs(conn)
     if not pairs:
         print("No likely duplicates found.")
         return
