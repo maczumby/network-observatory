@@ -20,6 +20,7 @@ Standard library only.
 """
 
 import argparse
+import json
 import os
 import sys
 import webbrowser
@@ -33,7 +34,6 @@ DEFAULT_OUT = os.path.join(REPO_ROOT, "dashboard", "workbench.html")
 sys.path.insert(0, HERE)
 import trellis  # noqa: E402
 from observatory import common  # noqa: E402
-import reconcile  # noqa: E402
 
 
 def build_payload(db_path):
@@ -75,20 +75,40 @@ def build_payload(db_path):
             "bucket": trellis.warmth_bucket(ds),
         })
 
-    # Identity proposals, grouped by the email-/calendar-minted contact so the
-    # working row can offer "same person as…?" with the evidence.
-    candidates = {}
-    for prop in reconcile.identity_queue(conn):
-        candidates.setdefault(str(prop["stray_id"]), []).append({
-            "linkedin_id": prop["linkedin_id"],
-            "linkedin_name": prop["linkedin_name"],
-            "linkedin_company": prop["linkedin_company"],
-            "why": prop["why"],
-            "merge_command": prop["merge_command"],
-        })
     conn.close()
 
-    return {"people": people, "candidates": candidates, "today": today}
+    # Identity proposals, grouped by the email-/calendar-minted contact so the
+    # working row can offer "same person as…?" with the evidence.
+    #
+    # Read from the queue reconcile.py writes rather than recomputing it here:
+    # matching is a whole-graph pass, and rebuilding a page shouldn't pay for
+    # it. It also means the screen offers exactly the proposals the agent is
+    # looking at, instead of a second opinion computed a moment later.
+    candidates = {}
+    queue_path = os.path.join(os.path.dirname(os.path.abspath(db_path)),
+                              "linkedin_identity_review_queue.json")
+    stale = False
+    if os.path.exists(queue_path):
+        try:
+            with open(queue_path, encoding="utf-8") as f:
+                proposals = json.load(f)
+        except (OSError, ValueError):
+            proposals = []
+            stale = True
+        for prop in proposals:
+            try:
+                candidates.setdefault(str(prop["stray_id"]), []).append({
+                    "linkedin_id": prop["linkedin_id"],
+                    "linkedin_name": prop["linkedin_name"],
+                    "linkedin_company": prop.get("linkedin_company", ""),
+                    "why": prop.get("why", ""),
+                    "merge_command": prop.get("merge_command", ""),
+                })
+            except KeyError:
+                stale = True
+
+    return {"people": people, "candidates": candidates, "today": today,
+            "candidates_generated": bool(candidates) and not stale}
 
 
 def render(payload, out_path):
@@ -110,6 +130,9 @@ def main():
     print(f"Wrote {args.out}")
     print(f"  {len(payload['people'])} people; {flagged} prioritized, {due} follow-ups due, "
           f"{len(payload['candidates'])} with identity proposals")
+    if not payload["candidates"]:
+        print("  (no identity proposals loaded — run scripts/reconcile.py to "
+              "generate them, then rebuild)")
     if args.open:
         webbrowser.open("file://" + os.path.abspath(args.out))
 

@@ -60,6 +60,10 @@ TODAY = date.today()
 CADENCE = {"collaborator": 30, "prospect": 45, "investor": 60, "mentor": 90,
            "friend": 90, "weak_tie": 240, None: 120, "": 120}
 PRIORITY_FACTOR = {"critical": 0.5, "important": 0.75, "normal": 1.0, "muted": 99.0}
+# How long after a meeting it still reads as a natural follow-up. Past this,
+# radar stops mentioning it rather than nagging about a conversation that has
+# moved on.
+MEETING_FOLLOW_UP_DAYS = 21
 
 
 # ---------------------------------------------------------------------------
@@ -145,27 +149,42 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_plan_srcref
 CREATE INDEX IF NOT EXISTS idx_plan_conn ON calendar_plans(connection_id);
 """
 
-# The one trusted read over people: live (not merged tombstones), not muted, and
-# email-/calendar-minted contacts only count once they carry actual signal.
-# Exporters and queries consume this view instead of re-stating the filter.
-PEOPLE_V_SQL = """
-CREATE VIEW people_v AS
+# Everyone still standing (a merged alias is kept for reversibility, not for
+# display), each row carrying WHY the product would hide them. Stating the
+# rules once, here, is the point: people_v below is a filter over this view,
+# and the "show me what's hidden" paths read this one — so the two can't drift.
+PEOPLE_ALL_V_SQL = """
+CREATE VIEW people_all_v AS
 SELECT c.id, c.natural_key, c.first_name, c.last_name, c.full_name,
        c.url, c.email, c.company, c.title, c.func, c.is_founder, c.rank,
        c.connected_year, c.connected_month, c.connected_raw,
        lower(COALESCE(NULLIF(c.source,''),'manual')) AS source,
        c.first_seen_at, c.updated_at,
        COALESCE(m.priority,'normal') AS priority, m.mode,
-       m.follow_up_on, m.follow_up_reason
+       m.follow_up_on, m.follow_up_reason,
+       CASE
+         WHEN COALESCE(m.priority,'normal') = 'muted' THEN 'muted'
+         -- A bare swept address with nothing attached is a guess, not a
+         -- contact. An upcoming meeting counts: the person you're seeing on
+         -- Thursday must not be invisible until after you've met them.
+         WHEN lower(COALESCE(c.source,'')) IN ('gmail','calendar')
+              AND NOT EXISTS (SELECT 1 FROM interactions i
+                              WHERE i.connection_id = c.id)
+              AND NOT EXISTS (SELECT 1 FROM calendar_plans cp
+                              WHERE cp.connection_id = c.id)
+           THEN 'no signal yet'
+         ELSE NULL
+       END AS hidden_reason
 FROM connections c
 LEFT JOIN person_meta m ON m.connection_id = c.id
 WHERE lower(COALESCE(c.source,'')) NOT LIKE 'merged_into_%'
-  AND COALESCE(m.priority,'normal') <> 'muted'
-  AND (lower(COALESCE(c.source,'')) NOT IN ('gmail','calendar')
-       OR EXISTS (SELECT 1 FROM interactions i WHERE i.connection_id = c.id)
-       -- an upcoming meeting is signal too: the person you're seeing on
-       -- Thursday must not be invisible until after you've met them
-       OR EXISTS (SELECT 1 FROM calendar_plans cp WHERE cp.connection_id = c.id))
+"""
+
+# The one trusted read: everyone the product will show. Exporters and queries
+# consume this instead of re-stating the filter anywhere.
+PEOPLE_V_SQL = """
+CREATE VIEW people_v AS
+SELECT * FROM people_all_v WHERE hidden_reason IS NULL
 """
 
 # Columns migrate() must find after running. A DB that fails this check carries a
@@ -219,6 +238,8 @@ def migrate(conn):
     _add_column(conn, "identity_merge_meta", "follow_up_on", "TEXT")
     _add_column(conn, "identity_merge_meta", "follow_up_reason", "TEXT")
     conn.execute("DROP VIEW IF EXISTS people_v")
+    conn.execute("DROP VIEW IF EXISTS people_all_v")
+    conn.execute(PEOPLE_ALL_V_SQL)
     conn.execute(PEOPLE_V_SQL)
     for table, cols in _REQUIRED_COLUMNS.items():
         have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
@@ -485,27 +506,17 @@ def warmth_rows(conn, include_muted=False):
     safe to run for display as often as anyone likes. Muted contacts (bulk
     senders, not-a-person addresses) are hidden unless explicitly asked for.
     """
-    agg_join = """
-        LEFT JOIN (SELECT connection_id, MAX(occurred_on) AS last_on, COUNT(*) AS n
-                   FROM interactions GROUP BY connection_id) agg
-               ON agg.connection_id = {alias}.id"""
-    if include_muted:
-        # The only reader that deliberately looks behind the trust filter.
-        sql = ("""
-        SELECT c.id, c.full_name, c.company, c.title, c.email, c.url,
-               lower(COALESCE(NULLIF(c.source,''),'manual')) AS source,
-               COALESCE(m.priority,'normal') AS priority, m.mode,
-               m.follow_up_on, m.follow_up_reason, agg.last_on, agg.n
-        FROM connections c
-        LEFT JOIN person_meta m ON m.connection_id = c.id"""
-               + agg_join.format(alias="c")
-               + " WHERE lower(COALESCE(c.source,'')) NOT LIKE 'merged_into_%'")
-    else:
-        sql = ("""
+    # Same columns either way — include_muted just widens which view we read,
+    # so the trust rules live in exactly one place (the views) and can't drift.
+    source_view = "people_all_v" if include_muted else "people_v"
+    sql = f"""
         SELECT p.id, p.full_name, p.company, p.title, p.email, p.url, p.source,
                p.priority, p.mode, p.follow_up_on, p.follow_up_reason,
-               agg.last_on, agg.n
-        FROM people_v p""" + agg_join.format(alias="p"))
+               p.hidden_reason, agg.last_on, agg.n
+        FROM {source_view} p
+        LEFT JOIN (SELECT connection_id, MAX(occurred_on) AS last_on, COUNT(*) AS n
+                   FROM interactions GROUP BY connection_id) agg
+               ON agg.connection_id = p.id"""
     rows = []
     for r in conn.execute(sql):
         ds = days_since(r["last_on"])
@@ -516,6 +527,7 @@ def warmth_rows(conn, include_muted=False):
             "origin": r["source"] or "manual",
             "flagged": pri in ("important", "critical"),
             "muted": pri == "muted",
+            "hidden_reason": r["hidden_reason"],
             "mode": r["mode"],
             "follow_up_on": r["follow_up_on"],
             "follow_up_due": bool(r["follow_up_on"]
@@ -628,24 +640,65 @@ def _match_candidates(conn):
     for p in linkedin:
         by_first.setdefault(_norm(p["first_name"]), []).append(p)
 
+    # Blocking index. Comparing every stray against every LinkedIn person means
+    # a fuzzy string compare per pair — 400 × 12,000 is five million of them,
+    # which is minutes of work for a handful of proposals. Instead, index people
+    # by the first two letters of each name part and by the shapes an email
+    # local part can take, then only run the expensive comparison on people who
+    # share one. Near-misses like "jon"/"john" still meet ("jo"), so this
+    # narrows the search without narrowing the results.
+    def _prefixes(row):
+        return {t[:2] for t in (_norm(row["first_name"]), _norm(row["last_name"]),
+                                _norm(row["full_name"])) if len(t) >= 2}
+
+    by_prefix, by_local = {}, {}
+    for p in linkedin:
+        for pref in _prefixes(p):
+            by_prefix.setdefault(pref, []).append(p)
+        first, last = _norm(p["first_name"]), _norm(p["last_name"])
+        for form in {first + last, f"{first}.{last}", first, last}:
+            if form:
+                by_local.setdefault(form, []).append(p)
+
     proposals = []
     for s in strays:
         sname = _norm(s["full_name"])
         local = (s["email"] or "").split("@")[0].lower()
+        nearby = {}
+        for pref in {t[:2] for t in sname.split() + [sname] if len(t) >= 2}:
+            for p in by_prefix.get(pref, ()):
+                nearby[p["id"]] = p
+        for form in {local, _norm_local(local), _norm_local(local).replace(".", "")}:
+            for p in by_local.get(form, ()):
+                nearby[p["id"]] = p
         best = []
-        for p in linkedin:
+        for p in nearby.values():
             pname = _norm(p["full_name"])
             reasons = []
-            sim = SequenceMatcher(None, sname, pname).ratio()
-            if sim >= 0.82 and sname != "":
-                reasons.append(f"names {int(sim * 100)}% similar")
+            score = 0.0
+            if sname and not _too_different(sname, pname):
+                sim = SequenceMatcher(None, sname, pname).ratio()
+                if sim >= NAME_SIMILARITY:
+                    reasons.append(f"names {int(sim * 100)}% similar")
+                    score = max(score, sim)
             compact = _norm(p["first_name"]) + _norm(p["last_name"])
             dotted = f"{_norm(p['first_name'])}.{_norm(p['last_name'])}"
-            if local and local in (compact, dotted,
-                                   _norm(p["first_name"]), _norm(p["last_name"])):
+            forms = {compact, dotted, _norm(p["first_name"]), _norm(p["last_name"])}
+            # Compare the address the same way the names are normalized —
+            # plenty of real addresses carry digits (john.smith2@…), and
+            # comparing those raw against stripped names never matches.
+            if local and ({local, _norm_local(local),
+                           _norm_local(local).replace(".", "")} & forms):
                 reasons.append(f"email '{local}@…' matches their name")
+                # An address carrying both their names is the strongest signal
+                # we have short of an exact match.
+                score = max(score, 1.0 if local in (compact, dotted) else 0.95)
             if reasons:
-                best.append((p, "; ".join(reasons)))
+                best.append((score, p, "; ".join(reasons)))
+        # Strongest evidence first — when several people could be the match, the
+        # three shown should be the three best, not the three lowest row ids.
+        best.sort(key=lambda t: (-t[0], t[1]["id"]))
+        best = [(p, why) for _, p, why in best]
         if not best and " " not in (s["full_name"] or "").strip():
             firsts = by_first.get(sname, [])
             if len(firsts) == 1:
@@ -960,6 +1013,41 @@ def cmd_radar(conn, a):
             + (f": {r['follow_up_reason']}" if r["follow_up_reason"] else ""),
             facts)
 
+    # 0b) you met, and then nothing. The whole reason to feed calendar data in:
+    #     a meeting in the last MEETING_FOLLOW_UP_DAYS with no contact since and
+    #     nothing already planned. Silent after the grace period, so it nudges
+    #     once while it's still natural to write, not forever.
+    for r in conn.execute("""
+        SELECT i.connection_id AS cid, MAX(i.occurred_on) AS met_on
+        FROM interactions i
+        WHERE i.kind = 'meeting' AND i.occurred_on <= ? AND i.occurred_on >= ?
+        GROUP BY i.connection_id""",
+        (TODAY.isoformat(),
+         date.fromordinal(TODAY.toordinal() - MEETING_FOLLOW_UP_DAYS).isoformat())
+    ).fetchall():
+        cid = r["cid"]
+        p = person_row(conn, cid)
+        if not p or (p["source"] or "").startswith("merged_into_"):
+            continue
+        m = meta_for(conn, cid)
+        if m and (m["priority"] == "muted" or m["follow_up_on"]):
+            continue  # already parked, or already has a date they chose
+        since = conn.execute("""SELECT COUNT(*) FROM interactions
+            WHERE connection_id=? AND occurred_on > ?""", (cid, r["met_on"])).fetchone()[0]
+        if since:
+            continue  # you've been in touch since; nothing to nudge about
+        if conn.execute("""SELECT 1 FROM open_loops WHERE connection_id=?
+                AND status='open'""", (cid,)).fetchone():
+            continue  # an explicit loop already says what you owe them
+        if conn.execute("""SELECT 1 FROM calendar_plans WHERE connection_id=?
+                AND planned_on >= ?""", (cid, TODAY.isoformat())).fetchone():
+            continue  # you're seeing them again anyway
+        days = days_since(r["met_on"])
+        add(cid, "met_no_followup", 95,
+            f"{p['full_name']} — you met {days} day{'' if days == 1 else 's'} ago "
+            f"and haven't been in touch since",
+            [f"meeting on {r['met_on']}", "no contact since, nothing scheduled"])
+
     # 1) open loops — highest signal (you owe something concrete)
     for r in conn.execute("""SELECT o.*, c.full_name FROM open_loops o
             JOIN connections c ON c.id=o.connection_id WHERE o.status='open'""").fetchall():
@@ -1057,6 +1145,33 @@ def _norm(s):
     return re.sub(r"[^a-z ]", "", (s or "").lower()).strip()
 
 
+def _norm_local(s):
+    """An email local part reduced to the same alphabet the names use, so
+    'john.smith2' can meet 'john.smith'."""
+    return re.sub(r"[^a-z.]", "", (s or "").lower()).strip(".")
+
+
+NAME_SIMILARITY = 0.82
+# How many alphabetical neighbours to check for a near-duplicate name inside
+# one company. Names that differ enough to sort further apart than this are
+# past what the similarity threshold would accept anyway.
+DUPE_NEIGHBOURS = 12
+
+
+def _too_different(a, b, threshold=NAME_SIMILARITY):
+    """True when two names cannot possibly reach the similarity threshold.
+
+    SequenceMatcher's ratio is 2·matches / (len(a) + len(b)), and matches can
+    never exceed the shorter string, so 2·min(la, lb) / (la + lb) is a hard
+    ceiling. Checking that first is arithmetic instead of an alignment, which
+    matters because the identity passes compare a lot of pairs: on a
+    12,000-person graph this is the difference between minutes and seconds."""
+    la, lb = len(a), len(b)
+    if not la or not lb:
+        return True
+    return (2.0 * min(la, lb)) / (la + lb) < threshold
+
+
 def _dupe_pairs(conn):
     """(a, b, evidence, confidence) tuples for possible duplicate people.
     Proposals only — nothing is merged here."""
@@ -1075,19 +1190,28 @@ def _dupe_pairs(conn):
                 pairs.append((seen[v], p, f"same {field}: {v}", "likely"))
             else:
                 seen[v] = p
-    # fuzzy: very similar names at the same company (review only)
+    # fuzzy: very similar names at the same company (review only).
+    #
+    # Comparing every pair inside a group is quadratic, and one big employer in
+    # a large network is enough to make that minutes of work. Near-identical
+    # names sort next to each other ("Jon Smith" beside "John Smith"), so sort
+    # the group and only compare each person with their nearest neighbours —
+    # linear, and it finds the same pairs this heuristic was ever going to find.
     by_company = {}
     for p in people:
         by_company.setdefault(_norm(p["company"]), []).append(p)
     for comp, group in by_company.items():
         if not comp or len(group) < 2:
             continue
-        for i in range(len(group)):
-            for j in range(i + 1, len(group)):
-                a1, b1 = group[i], group[j]
-                sim = SequenceMatcher(None, _norm(a1["full_name"]),
-                                      _norm(b1["full_name"])).ratio()
-                if sim >= 0.82 and a1["full_name"] != b1["full_name"]:
+        ordered = sorted(group, key=lambda p: _norm(p["full_name"]))
+        for i, a1 in enumerate(ordered):
+            na = _norm(a1["full_name"])
+            for b1 in ordered[i + 1:i + 1 + DUPE_NEIGHBOURS]:
+                nb = _norm(b1["full_name"])
+                if _too_different(na, nb):
+                    continue
+                sim = SequenceMatcher(None, na, nb).ratio()
+                if sim >= NAME_SIMILARITY and a1["full_name"] != b1["full_name"]:
                     pairs.append((a1, b1, f"similar names at {a1['company']}", "possible"))
     return pairs
 

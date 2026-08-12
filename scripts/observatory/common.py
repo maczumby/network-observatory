@@ -191,10 +191,12 @@ def load_people(conn):
     return people
 
 
-def muted_count(conn):
-    """How many contacts the trust filter is hiding (for honest coverage lines)."""
-    return conn.execute("""
-        SELECT COUNT(*) FROM connections c
-        JOIN person_meta m ON m.connection_id = c.id
-        WHERE m.priority = 'muted'
-          AND lower(COALESCE(c.source,'')) NOT LIKE 'merged_into_%'""").fetchone()[0]
+def hidden_counts(conn):
+    """What the trust filter is holding back, by reason — so a coverage line can
+    say it out loud instead of quietly shrinking the denominator. Reads the same
+    view the screens do, so the numbers can't disagree with what's on screen."""
+    counts = {r["hidden_reason"]: r["n"] for r in conn.execute("""
+        SELECT hidden_reason, COUNT(*) AS n FROM people_all_v
+        WHERE hidden_reason IS NOT NULL GROUP BY hidden_reason""")}
+    return {"muted": counts.get("muted", 0),
+            "no_signal": counts.get("no signal yet", 0)}

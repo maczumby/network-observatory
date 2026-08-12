@@ -127,6 +127,12 @@ Both store **who and when only**. Titles, descriptions, and locations are never
 stored. Invitations with more than ten external attendees are skipped: a big
 invite mints acquaintances, not relationships.
 
+This is what the calendar is *for*: `radar` surfaces anyone you met recently and
+haven't spoken to since, so "we should stay in touch" doesn't quietly become
+nothing. It stays silent when you've already been in touch, when you're seeing
+them again, when you set your own date, and after three weeks — a nudge that
+fires forever is one you learn to ignore.
+
 ---
 
 ## 6. Direction is a column, not a sentence

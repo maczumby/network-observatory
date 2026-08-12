@@ -1,6 +1,6 @@
 ---
 name: network-observatory
-version: 1.12.0
+version: 1.12.1
 description: Build, update, query, and optionally enrich a private professional network from a LinkedIn export using the public Network Observatory repository. Use when a user asks Hermes or another coding agent to set up their network map, warmth table, or People workbench; remember relationships with Trellis; connect the Network Observatory Gmail metadata endpoint; check email recency; ingest optional calendar or meeting events; prioritize, deprioritize, or set a follow-up date on someone; reconcile duplicate identities; or update an existing Observatory.
 ---
 
@@ -184,6 +184,7 @@ whenever the sweep has not reached the end of the mailbox.
 ## Build the People workbench
 
 ```bash
+python3 scripts/reconcile.py        # first: generates the identity proposals
 python3 scripts/workbench_export.py
 ```
 
@@ -258,9 +259,13 @@ teammates' addresses (`data/owner_identities.json`), meeting rooms and other
 non-person invitees, and oversized invitations. Re-running is idempotent, so
 sweeping the same window twice is safe.
 
-**After a meeting, offer the follow-up.** "You met Ada last Tuesday — want me to
-remind you to follow up in a week?" That's `--follow-up "in 1 week"`. Draft the
-message if they ask; never send it.
+**After a meeting, `radar` does the asking for you.** Once meetings are ingested,
+anyone the user met in the last three weeks with no contact since — and nothing
+already scheduled or snoozed — surfaces as *"you met them N days ago and haven't
+been in touch since"*. Read that back plainly and offer the two useful moves: a
+follow-up date (`--follow-up "in 1 week"`), or a draft built only from stored
+facts (`trellis.py context --name X`). Never send it. The nudge goes quiet after
+three weeks rather than nagging about a conversation that has moved on.
 
 ## How to talk about the graph
 

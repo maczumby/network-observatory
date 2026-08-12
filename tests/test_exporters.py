@@ -165,13 +165,44 @@ class ExportedPagesTest(unittest.TestCase):
         self.assertEqual((ada["n"], ada["loops"], ada["plans"]), (3, 2, 2),
                          "counts multiplied — the joins fanned out")
 
-    def test_workbench_shows_status_and_identity_proposals(self):
+    def test_workbench_shows_status(self):
         grace = [p for p in self.workbench_payload["people"] if p["id"] == self.grace][0]
         self.assertEqual(grace["flag"], 1)
         self.assertEqual(grace["due"], 1)
-        proposals = self.workbench_payload["candidates"]
+
+    def test_workbench_offers_no_proposals_until_reconcile_has_run(self):
+        """Matching is a whole-graph pass; a page build must not pay for it.
+        With no queue file yet, the screen simply has nothing to offer."""
+        self.assertEqual(self.workbench_payload["candidates"], {})
+        self.assertFalse(self.workbench_payload["candidates_generated"])
+
+    def test_workbench_reads_the_queue_reconcile_writes(self):
+        import reconcile
+        conn = trellis.connect(self.db_path)
+        try:
+            reconcile.write_queue(os.path.dirname(self.db_path),
+                                  "linkedin_identity_review_queue.json",
+                                  reconcile.identity_queue(conn))
+        finally:
+            conn.close()
+        payload = workbench_export.build_payload(self.db_path)
+        proposals = payload["candidates"]
         self.assertIn(str(self.stray), proposals, "email-only contact got no proposal")
         self.assertIn("--from", proposals[str(self.stray)][0]["merge_command"])
+        self.assertTrue(payload["candidates_generated"])
+        os.remove(os.path.join(os.path.dirname(self.db_path),
+                               "linkedin_identity_review_queue.json"))
+
+    def test_a_corrupt_queue_file_does_not_break_the_build(self):
+        path = os.path.join(os.path.dirname(self.db_path),
+                            "linkedin_identity_review_queue.json")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("{ not json")
+        try:
+            payload = workbench_export.build_payload(self.db_path)
+            self.assertEqual(payload["candidates"], {})
+        finally:
+            os.remove(path)
 
     def test_map_payload_carries_both_identities(self):
         people = observatory_export.load_people(self.db_path)

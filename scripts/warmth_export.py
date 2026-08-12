@@ -55,7 +55,7 @@ def build_payload(db_path):
             "last": p["last_on"], "days": p["days"],
             "n": p["n"], "bucket": p["bucket"],
         })
-    muted = common.muted_count(conn)
+    hidden = common.hidden_counts(conn)
 
     # Receipts: every interaction for everyone with signal. This is who/when
     # provenance only — summaries here are things like "email received", never
@@ -84,7 +84,8 @@ def build_payload(db_path):
             "contacts": len(people),
             "contacts_with_signal": measured,
             "contacts_unmeasured": len(people) - measured,
-            "muted_hidden": muted,
+            "muted_hidden": hidden["muted"],
+            "unreconciled_hidden": hidden["no_signal"],
             "interactions": span["n"],
             "earliest": span["lo"], "latest": span["hi"],
             "by_source": by_source,

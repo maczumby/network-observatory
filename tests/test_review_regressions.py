@@ -240,5 +240,93 @@ class BackfillMatchesTheOldDisplayTest(unittest.TestCase):
         self.assertEqual(got, legacy)
 
 
+class IdentityMatchingScalesTest(unittest.TestCase):
+    """Matching used to compare every swept contact against every LinkedIn
+    person, so the People screen took ~11s at 1,200 people and never finished
+    at the 12,000 the README advertises. Guard the shape of the fix: the
+    render path does no matching at all, and the matcher itself is bounded."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = os.path.join(self.tmp.name, "data", "db.sqlite")
+        self.conn = trellis.connect(self.db)
+        # Distinct names that survive normalization — digits get stripped, so
+        # "Given1"/"Given2" would collapse into one string and make every
+        # person look like every other.
+        syl = ["an", "be", "cor", "dal", "el", "fen", "gar", "hal", "ir", "jen",
+               "kal", "lor", "mar", "nor", "ol", "pra", "quin", "ras", "sel", "tor"]
+        rows = []
+        for i in range(2000):
+            first = syl[i % 20] + syl[(i // 20) % 20]
+            last = syl[(i // 7) % 20] + syl[(i // 3) % 20] + syl[i % 20]
+            rows.append((f"s:{i}", first.capitalize(), last.capitalize(),
+                         f"{first.capitalize()} {last.capitalize()}",
+                         f"https://li.test/{i}", "", "Megacorp", "", "Other", 0, 2,
+                         "linkedin", "2026-01-01", "2026-01-01"))
+        self.target_first = rows[7][1]
+        self.target_last = rows[7][2]
+        self.target_name = rows[7][3]
+        self.conn.executemany("""INSERT INTO connections (natural_key, first_name,
+            last_name, full_name, url, email, company, title, func, is_founder,
+            rank, source, first_seen_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
+        # one swept contact that really is one of them — a bare first name and
+        # a work address with a digit in it, which is what sweeps actually mint
+        cid = trellis.find_or_create_person(
+            self.conn, name=self.target_first,
+            email=f"{self.target_first.lower()}.{self.target_last.lower()}2@x.test",
+            origin="gmail")
+        self.conn.execute("""INSERT INTO interactions (connection_id, kind,
+            occurred_on, summary, source, source_ref, created_at)
+            VALUES (?,?,?,?,?,?,?)""",
+            (cid, "email", "2026-06-01", "email sent", "gmail", "s1", trellis.now()))
+        self.conn.commit()
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def test_matching_still_finds_the_real_person(self):
+        proposals = trellis._match_candidates(self.conn)
+        self.assertTrue(
+            any(p["linkedin_name"] == self.target_name for p in proposals),
+            f"the length/prefix bounds lost the true match ({self.target_name}); "
+            f"got {[p['linkedin_name'] for p in proposals]}")
+
+    def test_an_address_with_digits_still_matches_their_name(self):
+        """Sweeps mint plenty of john.smith2@… addresses; comparing those raw
+        against digit-stripped names never matched."""
+        proposals = trellis._match_candidates(self.conn)
+        top = [p for p in proposals if p["linkedin_name"] == self.target_name]
+        self.assertTrue(top, "digits in the local part lost the match")
+        self.assertIn("matches their name", top[0]["why"])
+
+    def test_the_length_bound_only_skips_impossible_pairs(self):
+        # 2*min/(la+lb) is a hard ceiling on SequenceMatcher's ratio, so anything
+        # the bound rejects could never have met the threshold.
+        from difflib import SequenceMatcher
+        pairs = [("ada lovelace", "ada lovelace"), ("jon smith", "john smith"),
+                 ("bo", "bartholomew winterbottom"), ("li", "liang"),
+                 ("grace hopper", "g"), ("brock", "brock kelly")]
+        for a, b in pairs:
+            with self.subTest(pair=(a, b)):
+                if trellis._too_different(a, b):
+                    self.assertLess(SequenceMatcher(None, a, b).ratio(),
+                                    trellis.NAME_SIMILARITY,
+                                    "bound rejected a pair that would have matched")
+
+    def test_building_the_people_screen_does_no_matching(self):
+        """The screen reads the queue reconcile writes. If it ever recomputes,
+        this test gets slow — and a slow build is the bug coming back."""
+        import time
+        import workbench_export
+        start = time.time()
+        payload = workbench_export.build_payload(self.db)
+        elapsed = time.time() - start
+        self.assertEqual(payload["candidates"], {})
+        self.assertLess(elapsed, 2.0,
+                        f"page build took {elapsed:.1f}s — is it matching again?")
+
+
 if __name__ == "__main__":
     unittest.main()

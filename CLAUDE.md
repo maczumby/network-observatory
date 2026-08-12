@@ -203,6 +203,12 @@ that look like LinkedIn people you already know) and
 **ambiguous** ones to the user with the evidence — don't guess. Identity merges are
 never applied automatically, in either mode.
 
+**Run `reconcile.py` before `workbench_export.py`.** The People screen reads that
+queue rather than recomputing it, because matching is a whole-graph pass and a
+page rebuild shouldn't pay for it. If the screen shows no "same person as…?"
+proposals, the queue hasn't been generated since the last sweep — run reconcile,
+then rebuild.
+
 Set up `data/owner_identities.json` early (their own addresses, plus
 `owner_domains` for teammates) — otherwise the user's own inbox becomes part of
 their network. See `docs/DATA_INTEGRITY.md`.
