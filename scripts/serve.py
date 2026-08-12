@@ -40,36 +40,44 @@ import sys
 import time
 import urllib.parse
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(HERE)
 DASHBOARD_DIR = os.path.join(REPO_ROOT, "dashboard")
 AUTH_FILE = os.path.join(REPO_ROOT, "data", "serve_auth.json")
+DEFAULT_DB = os.path.join(REPO_ROOT, "data", "linkedin.db")
+VERSION_FILE = os.path.join(REPO_ROOT, "VERSION")
 DEFAULT_PORT = 8766
 PBKDF2_ITERATIONS = 200_000
 SESSION_SECONDS = 30 * 24 * 3600
 ATTEMPT_LIMIT = 20
 ATTEMPT_WINDOW = 15 * 60
+API_BODY_LIMIT = 16 * 1024
+WRITE_LIMIT = 120           # writes per window per client IP
+WRITE_WINDOW = 15 * 60
 
 LOGIN_PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Network Observatory</title>
 <style>
+  /* Palette mirrors scripts/observatory/tokens.css (this page is generated
+     server-side, so the values are inlined). */
   body {{ margin:0; min-height:100vh; display:grid; place-items:center;
-         background:#14160f; color:#fcf6dc;
+         background:#0b0e18; color:#e9ecf6;
          font:16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
   form {{ width:min(360px, calc(100vw - 48px)); padding:30px;
-          background:#1e2119; border:1px solid rgba(252,246,220,0.12);
+          background:#131728; border:1px solid rgba(166,178,212,0.14);
           border-radius:14px; }}
   h1 {{ margin:0 0 6px; font-size:20px; letter-spacing:-0.02em; }}
-  p {{ margin:0 0 18px; color:rgba(252,246,220,0.62); font-size:14px; }}
+  p {{ margin:0 0 18px; color:#a8b0ca; font-size:14px; }}
   input[type=password] {{ width:100%; box-sizing:border-box; padding:11px 12px;
-          border-radius:9px; border:1px solid rgba(252,246,220,0.2);
-          background:#14160f; color:#fcf6dc; font-size:16px; }}
+          border-radius:9px; border:1px solid rgba(166,178,212,0.30);
+          background:#0b0e18; color:#e9ecf6; font-size:16px; }}
   button {{ width:100%; margin-top:14px; padding:11px; border:none;
-          border-radius:9px; background:#f19779; color:#14160f;
+          border-radius:9px; background:#9db2ff; color:#0a0d1a;
           font-size:15px; font-weight:700; cursor:pointer; }}
   .err {{ margin:0 0 14px; padding:9px 11px; border-radius:8px;
-          background:rgba(241,151,121,0.14); color:#f19779; font-size:14px; }}
+          background:rgba(240,144,125,0.14); color:#f0907d; font-size:14px; }}
 </style></head><body>
 <form method="post" action="/login">
   <h1>Network Observatory</h1>
@@ -143,11 +151,119 @@ def safe_next(path):
     return "/observatory.html"
 
 
+# ------------------------------------------------------------------ write API
+#
+# Opt-in with --rw, and only on top of a saved password. Threat notes:
+#   - SameSite=Lax is NOT enough on localhost (ports don't factor into
+#     "site", so another local app could ride the cookie). Defense in depth:
+#     writes must be Content-Type: application/json (an HTML form can't send
+#     that cross-origin without a CORS preflight we never grant), an Origin
+#     header, when present, must match the Host, and no CORS headers are
+#     ever emitted, so cross-origin pages can't read responses either.
+#   - A rebound DNS origin never holds the signed cookie, so --rw without a
+#     password would be the actual foot-gun; that combination refuses to run.
+#   - Anyone WITH the viewing password can write unless --rw-local-only.
+#     serve.py says so at startup; docs/THREAT_MODEL.md carries the details.
+
+def read_version():
+    try:
+        with open(VERSION_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return "(unknown)"
+
+
+def _trellis():
+    sys.path.insert(0, HERE)
+    import trellis
+    return trellis
+
+
+VALID_PRIORITIES = ("muted", "normal", "important", "critical")
+
+
+def api_person(db_path, body):
+    """One explicit user action -> one Trellis write. Returns (status, dict)."""
+    trellis = _trellis()
+    action = body.get("action")
+    conn = trellis.connect(db_path)
+    try:
+        cid = None
+        if isinstance(body.get("id"), int):
+            row = conn.execute("SELECT * FROM connections WHERE id=?",
+                               (body["id"],)).fetchone()
+            if row:
+                row = trellis._canonical_person(conn, row)
+                cid = row["id"] if row else None
+        if cid is None:
+            if not any(body.get(k) for k in ("name", "email", "url")):
+                return 400, {"ok": False, "error": "no person identified"}
+            cid = trellis.find_or_create_person(
+                conn, name=body.get("name"), email=body.get("email"),
+                url=body.get("url"), company=body.get("company"))
+
+        if action == "priority":
+            value = body.get("value")
+            if value not in VALID_PRIORITIES:
+                return 400, {"ok": False, "error": f"priority must be one of {VALID_PRIORITIES}"}
+            trellis.set_priority(conn, cid, value)
+        elif action == "follow_up":
+            on = body.get("on")
+            if on is not None:
+                try:
+                    on = trellis.parse_follow_up(str(on))
+                except SystemExit as e:
+                    return 400, {"ok": False, "error": str(e)}
+            trellis.set_follow_up(conn, cid, on, body.get("reason"))
+        elif action == "note":
+            note = (body.get("note") or "").strip()
+            if not note:
+                return 400, {"ok": False, "error": "empty note"}
+            if not conn.execute("SELECT 1 FROM notes WHERE connection_id=? AND content=?",
+                                (cid, note)).fetchone():
+                conn.execute("""INSERT INTO notes (connection_id, content, category,
+                    created_at) VALUES (?,?, 'context', ?)""",
+                    (cid, note, trellis.now()))
+        elif action == "flag":
+            # legacy map action: raise to important, never downgrade
+            m = trellis.meta_for(conn, cid)
+            cur = (m["priority"] if m else None) or "normal"
+            if cur in ("normal", "muted"):
+                trellis.set_priority(conn, cid, "important")
+        else:
+            return 400, {"ok": False, "error": f"unknown action {action!r}"}
+        conn.commit()
+        return 200, {"ok": True, "id": cid, "action": action}
+    finally:
+        conn.close()
+
+
+def api_merge(db_path, body):
+    trellis = _trellis()
+    src, into = body.get("from_id"), body.get("into_id")
+    if not isinstance(src, int) or not isinstance(into, int):
+        return 400, {"ok": False, "error": "from_id and into_id must be integers"}
+    conn = trellis.connect(db_path)
+    try:
+        ns = argparse.Namespace(src=src, into=into)
+        try:
+            trellis.cmd_merge(conn, ns)  # journaled; reversible via unmerge
+        except SystemExit as e:
+            return 400, {"ok": False, "error": str(e)}
+        return 200, {"ok": True, "from_id": src, "into_id": into}
+    finally:
+        conn.close()
+
+
 # ------------------------------------------------------------------- handler
 
 class _AuthHandler(http.server.SimpleHTTPRequestHandler):
     auth = None  # dict from load_auth(), or None for open access
     attempts = {}  # ip -> [window_start, count]
+    rw = False               # write API enabled (--rw; requires a password)
+    rw_local_only = False    # accept writes from loopback only (--rw-local-only)
+    db_path = DEFAULT_DB
+    writes = {}              # ip -> [window_start, count] for the write cap
 
     # -- helpers
     def _cookie_session(self):
@@ -202,6 +318,74 @@ class _AuthHandler(http.server.SimpleHTTPRequestHandler):
             return True
         return session_valid(self.auth, self._cookie_session())
 
+    def _send_json(self, status, payload):
+        raw = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "no-store")
+        # Deliberately no CORS headers: cross-origin pages get opaque failures.
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def _origin_ok(self):
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True  # non-browser client or same-origin GET-form nav
+        host = self.headers.get("Host", "")
+        return urllib.parse.urlparse(origin).netloc == host
+
+    def _over_write_limit(self):
+        ip = self.client_address[0]
+        now = time.time()
+        window, count = self.writes.get(ip, (now, 0))
+        if now - window > WRITE_WINDOW:
+            self.writes[ip] = (now, 1)
+            return False
+        self.writes[ip] = (window, count + 1)
+        return count + 1 > WRITE_LIMIT
+
+    def _handle_api_post(self, path):
+        if not self.rw:
+            self._send_json(404, {"ok": False, "error": "write API not enabled"})
+            return
+        if not self._authorized():
+            self._send_json(401, {"ok": False, "error": "not signed in"})
+            return
+        if self.rw_local_only and self.client_address[0] not in ("127.0.0.1", "::1"):
+            self._send_json(403, {"ok": False, "error": "writes are local-only"})
+            return
+        if not self._origin_ok():
+            self._send_json(403, {"ok": False, "error": "cross-origin write refused"})
+            return
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            self._send_json(415, {"ok": False, "error": "writes must be application/json"})
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > API_BODY_LIMIT:
+            self._send_json(413, {"ok": False, "error": "body missing or too large"})
+            return
+        if self._over_write_limit():
+            self._send_json(429, {"ok": False, "error": "too many writes; slow down"})
+            return
+        try:
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            assert isinstance(body, dict)
+        except (ValueError, AssertionError):
+            self._send_json(400, {"ok": False, "error": "invalid JSON object"})
+            return
+        try:
+            if path == "/api/person":
+                status, payload = api_person(self.db_path, body)
+            elif path == "/api/merge":
+                status, payload = api_merge(self.db_path, body)
+            else:
+                status, payload = 404, {"ok": False, "error": "unknown endpoint"}
+        except Exception as e:  # a write must never take the server down
+            status, payload = 500, {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        self._send_json(status, payload)
+
     # -- verbs
     def do_GET(self):  # noqa: N802 (http.server naming)
         path = urllib.parse.urlparse(self.path).path
@@ -209,6 +393,15 @@ class _AuthHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(302)
             self.send_header("Location", "/observatory.html")
             self.end_headers()
+            return
+        if path == "/api/status":
+            # Pages probe this to tell live / read-only apart. Auth-gated like
+            # everything else so an unauthenticated probe learns nothing.
+            if not self._authorized():
+                self._send_json(401, {"ok": False, "error": "not signed in"})
+                return
+            self._send_json(200, {"ok": True, "rw": bool(self.rw),
+                                  "version": read_version()})
             return
         if not self._authorized():
             self._login_page(path)
@@ -224,6 +417,9 @@ class _AuthHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         path = urllib.parse.urlparse(self.path).path
+        if path.startswith("/api/"):
+            self._handle_api_post(path)
+            return
         if path != "/login" or not self.auth:
             self.send_response(404)
             self.end_headers()
@@ -269,6 +465,16 @@ def main():
                         help="Delete the saved password and exit.")
     parser.add_argument("--dir", default=DASHBOARD_DIR,
                         help="Directory to serve (default: dashboard/).")
+    parser.add_argument("--rw", action="store_true",
+                        help="Enable the write API (/api/person, /api/merge) so the "
+                             "screens can mark priority / set follow-ups / confirm "
+                             "merges. Requires a saved password.")
+    parser.add_argument("--rw-local-only", dest="rw_local_only", action="store_true",
+                        help="With --rw: accept writes from this machine only, so "
+                             "people you share the viewing password with can look "
+                             "but not change anything.")
+    parser.add_argument("--db", default=DEFAULT_DB,
+                        help="Trellis DB the write API writes to (default: data/linkedin.db).")
     args = parser.parse_args()
 
     if args.clear_password:
@@ -287,13 +493,23 @@ def main():
         print(f"Password saved (hashed) to {AUTH_FILE}. Restarts stay locked automatically.")
 
     if not os.path.isdir(args.dir):
-        sys.exit(f"Nothing to serve: {args.dir} doesn't exist. Build the map first "
+        sys.exit(f"Nothing to serve: {args.dir} doesn't exist. Build the pages first "
                  f"(python3 scripts/observatory_export.py).")
-    if not os.path.exists(os.path.join(args.dir, "observatory.html")):
-        sys.exit(f"No observatory.html in {args.dir}. Build the map first "
-                 f"(python3 scripts/observatory_export.py).")
+    pages = [p for p in ("observatory.html", "warmth.html", "workbench.html")
+             if os.path.exists(os.path.join(args.dir, p))]
+    if not pages:
+        sys.exit(f"No built pages in {args.dir}. Build them first: "
+                 f"python3 scripts/observatory_export.py (then warmth_export.py, "
+                 f"workbench_export.py).")
 
     _AuthHandler.auth = None if args.open else load_auth()
+    if args.rw and not _AuthHandler.auth:
+        sys.exit("--rw needs a saved password (run --set-password first). "
+                 "An open server with a write API would let any visitor edit "
+                 "your relationship memory.")
+    _AuthHandler.rw = args.rw
+    _AuthHandler.rw_local_only = args.rw_local_only
+    _AuthHandler.db_path = args.db
     handler = functools.partial(_AuthHandler, directory=args.dir)
 
     http.server.ThreadingHTTPServer.allow_reuse_address = True
@@ -306,7 +522,13 @@ def main():
     else:
         lock = "open (no password saved). Run with --set-password to lock it"
     print(f"Serving {args.dir} on port {args.port} — {lock}.")
-    print(f"Local check: http://127.0.0.1:{args.port}/observatory.html")
+    print("Built pages: " + ", ".join(pages)
+          + ("" if len(pages) == 3 else "  (others not built yet)"))
+    if args.rw:
+        scope = "from this machine only" if args.rw_local_only else \
+            "for ANYONE with the viewing password"
+        print(f"Write API ON — priority/follow-up/merge changes accepted {scope}.")
+    print(f"Local check: http://127.0.0.1:{args.port}/{pages[0]}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
