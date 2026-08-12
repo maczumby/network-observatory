@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>People — Network Observatory</title>
+<style>
+/*__OBS_FONTS__*/
+/*__OBS_TOKENS__*/
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--obs-bg); color: var(--obs-ink);
+    font: 14px/1.5 var(--obs-font-body);
+  }
+  header {
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+    padding: 22px 28px 0;
+  }
+  h1 {
+    margin: 0; font-family: var(--obs-font-display); font-weight: 400;
+    font-size: var(--obs-fs-title); letter-spacing: 0.01em;
+  }
+  .tagline {
+    font-family: var(--obs-font-display); font-style: italic;
+    font-size: 14px; color: var(--obs-ink-dim);
+  }
+  .controls {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    padding: 16px 28px;
+  }
+  input[type="search"] {
+    margin-left: auto; padding: 7px 12px; border-radius: var(--obs-r-sm);
+    border: 1px solid var(--obs-line); background: var(--obs-bg-raised);
+    color: var(--obs-ink); font-size: var(--obs-fs-body);
+    font-family: var(--obs-font-body); width: min(260px, 100%);
+  }
+  input[type="search"]:focus-visible { outline: 2px solid var(--obs-accent); }
+  .tablewrap { overflow-x: auto; padding: 0 28px 40px; }
+  table { border-collapse: collapse; width: 100%; min-width: 760px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--obs-line); }
+  th {
+    font-family: var(--obs-font-mono); font-size: 10.5px;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--obs-ink-dim); cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  th .arrow { opacity: 0.7; }
+  td.num { font-variant-numeric: tabular-nums; }
+  tr.person { cursor: pointer; }
+  tr.person:hover td { background: rgba(166, 178, 212, 0.05); }
+  .name a { color: var(--obs-ink); text-decoration: none; }
+  .name a:hover { color: var(--obs-accent); }
+  .sub { color: var(--obs-ink-dim); font-size: var(--obs-fs-small); }
+  .faint { color: var(--obs-ink-faint); }
+  .wrap-any { overflow-wrap: anywhere; word-break: break-word; }
+
+  /* the expanded working row */
+  tr.desk td {
+    background: var(--obs-bg-raised); padding: 16px 18px;
+    border-bottom: 1px solid var(--obs-line-strong);
+  }
+  .desk-grid { display: flex; gap: 36px; flex-wrap: wrap; align-items: flex-start; }
+  .desk-col { min-width: 220px; }
+  .desk-label {
+    font-family: var(--obs-font-mono); font-size: 10px;
+    letter-spacing: var(--obs-ls-label); text-transform: uppercase;
+    color: var(--obs-ink-faint); margin-bottom: 8px;
+  }
+  .seg { display: inline-flex; border: 1px solid var(--obs-line-strong);
+         border-radius: var(--obs-r-sm); overflow: hidden; }
+  .seg button {
+    background: none; border: none; color: var(--obs-ink-dim);
+    font: 12.5px var(--obs-font-body); padding: 6px 12px; cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--obs-line); }
+  .seg button[aria-pressed="true"] { background: var(--obs-ink); color: var(--obs-bg); }
+  .seg button:focus-visible { outline: 2px solid var(--obs-accent); outline-offset: -2px; }
+  .quick { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
+  .quick input[type="date"] {
+    background: var(--obs-bg); border: 1px solid var(--obs-line);
+    border-radius: var(--obs-r-sm); color: var(--obs-ink);
+    font: 12px var(--obs-font-body); padding: 5px 8px;
+  }
+  .statusline { margin-top: 10px; font-size: var(--obs-fs-small); color: var(--obs-ink-dim); }
+  .saved { color: var(--obs-w-active); }
+  .queued { color: var(--obs-star); }
+  .cand { border: 1px solid var(--obs-line); border-radius: var(--obs-r-md);
+          padding: 10px 12px; margin-bottom: 8px; max-width: 460px; }
+  .cand .why { font-size: var(--obs-fs-small); color: var(--obs-ink-dim); margin: 3px 0 8px; }
+  .cand code {
+    display: block; font: 11px var(--obs-font-mono); color: var(--obs-ink-dim);
+    background: var(--obs-bg); border-radius: var(--obs-r-sm);
+    padding: 6px 8px; margin-top: 6px; overflow-wrap: anywhere;
+  }
+  .crosslinks { margin-top: 12px; font-size: var(--obs-fs-small); }
+  .crosslinks a { color: var(--obs-accent); text-decoration: none; }
+  .crosslinks a:hover { text-decoration: underline; }
+
+  /* pending-changes dock (static / read-only modes) */
+  #dock {
+    position: fixed; right: 22px; bottom: 22px; z-index: 40;
+    background: var(--obs-bg-overlay); border: 1px solid var(--obs-line-strong);
+    border-radius: var(--obs-r-lg); box-shadow: var(--obs-shadow-2);
+    padding: 14px 16px; max-width: 420px; display: none;
+  }
+  #dock.show { display: block; }
+  #dock textarea {
+    width: 100%; height: 130px; margin-top: 10px; resize: vertical;
+    background: var(--obs-bg); color: var(--obs-ink);
+    border: 1px solid var(--obs-line); border-radius: var(--obs-r-sm);
+    font: 11px var(--obs-font-mono); padding: 8px; display: none;
+  }
+  .empty {
+    margin: 60px auto; max-width: 520px; text-align: center; padding: 32px;
+    border: 1px solid var(--obs-line); border-radius: var(--obs-r-lg);
+    background: var(--obs-bg-raised);
+  }
+  .empty p { color: var(--obs-ink-dim); }
+</style>
+</head>
+<body>
+<!--__OBS_NAV__-->
+<header>
+  <h1>People</h1>
+  <span class="tagline">the working view — mark, snooze, reconcile</span>
+</header>
+<div id="app"></div>
+<div id="dock">
+  <div class="desk-label">Pending changes — not yet in your agent's memory</div>
+  <div id="dock-count" class="sub"></div>
+  <div style="display:flex; gap:8px; margin-top:10px;">
+    <button class="obs-btn obs-btn--primary" id="dock-copy">Copy for your agent</button>
+    <button class="obs-btn" id="dock-clear">Discard</button>
+  </div>
+  <textarea id="dock-text" readonly></textarea>
+</div>
+<script>
+window.WORKBENCH = __WORKBENCH_DATA__;
+(function () {
+  "use strict";
+  var data = window.WORKBENCH;
+  var app = document.getElementById("app");
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  if (!data.people.length) {
+    app.innerHTML = '<div class="empty"><h2>No people yet</h2>' +
+      "<p>Import your LinkedIn export first, then rebuild this page.</p></div>";
+    return;
+  }
+
+  // ---- mode + pending state -------------------------------------------------
+  function mode() {
+    return document.documentElement.getAttribute("data-obs-mode") || "static";
+  }
+  var PENDING_KEY = "obs_pending_status";
+  var pending = { priorities: {}, follow_ups: {} };
+  try { pending = JSON.parse(localStorage.getItem(PENDING_KEY)) || pending; } catch (e) {}
+  function savePending() {
+    try { localStorage.setItem(PENDING_KEY, JSON.stringify(pending)); } catch (e) {}
+    renderDock();
+  }
+  function pendingCount() {
+    return Object.keys(pending.priorities).length + Object.keys(pending.follow_ups).length;
+  }
+  function identityOf(p) {
+    var o = { name: p.name };
+    if (p.email) o.email = p.email;
+    if (p.url) o.url = p.url;
+    if (p.company) o.company = p.company;
+    return o;
+  }
+
+  function pasteText() {
+    var body = {
+      priorities: Object.keys(pending.priorities).map(function (k) { return pending.priorities[k]; }),
+      follow_ups: Object.keys(pending.follow_ups).map(function (k) { return pending.follow_ups[k]; })
+    };
+    return "Observatory sync — status changes from my People screen.\n" +
+      "Agent: apply these to Trellis exactly (they are my own choices, not suggestions):\n" +
+      "python3 scripts/trellis.py apply --json '" +
+      JSON.stringify(body).replace(/'/g, "\\u0027") + "'\n" +
+      "Then confirm what changed.";
+  }
+
+  function renderDock() {
+    var dock = document.getElementById("dock");
+    var n = pendingCount();
+    if (mode() === "live" || !n) { dock.className = ""; return; }
+    dock.className = "show";
+    document.getElementById("dock-count").textContent =
+      n + " change" + (n === 1 ? "" : "s") + " saved on this page only — " +
+      "copy the sync block and paste it to your agent.";
+  }
+  document.getElementById("dock-copy").onclick = function () {
+    var ta = document.getElementById("dock-text");
+    ta.style.display = "block";
+    ta.value = pasteText();
+    ta.select();
+    try { document.execCommand("copy"); this.textContent = "Copied ✓"; } catch (e) {}
+  };
+  document.getElementById("dock-clear").onclick = function () {
+    pending = { priorities: {}, follow_ups: {} };
+    savePending();
+    document.getElementById("dock-text").style.display = "none";
+  };
+
+  // ---- writes ---------------------------------------------------------------
+  function post(path, body) {
+    return fetch(path, {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    });
+  }
+
+  function setPriority(p, value, lineEl) {
+    p.priority = value;
+    p.flag = (value === "important" || value === "critical") ? 1 : 0;
+    if (mode() === "live") {
+      post("/api/person", Object.assign({ action: "priority", id: p.id, value: value }, identityOf(p)))
+        .then(function () { lineEl.innerHTML = '<span class="saved">Saved to your agent’s memory ✓</span>'; })
+        .catch(function () { queuePriority(p, value, lineEl); });
+    } else {
+      queuePriority(p, value, lineEl);
+    }
+    redrawRow(p);
+  }
+  function queuePriority(p, value, lineEl) {
+    pending.priorities[p.key] = Object.assign({ priority: value }, identityOf(p));
+    savePending();
+    lineEl.innerHTML = '<span class="queued">Queued — copy the sync block below-right to your agent.</span>';
+  }
+
+  function setFollowUp(p, on, reason, lineEl) {
+    p.follow_up_on = on;
+    p.due = on && on <= data.today ? 1 : 0;
+    if (mode() === "live") {
+      post("/api/person", Object.assign({ action: "follow_up", id: p.id, on: on, reason: reason || null }, identityOf(p)))
+        .then(function () { lineEl.innerHTML = '<span class="saved">Saved to your agent’s memory ✓</span>'; })
+        .catch(function () { queueFollowUp(p, on, reason, lineEl); });
+    } else {
+      queueFollowUp(p, on, reason, lineEl);
+    }
+    redrawRow(p);
+  }
+  function queueFollowUp(p, on, reason, lineEl) {
+    pending.follow_ups[p.key] = Object.assign({ on: on, reason: reason || null }, identityOf(p));
+    savePending();
+    lineEl.innerHTML = '<span class="queued">Queued — copy the sync block below-right to your agent.</span>';
+  }
+
+  function confirmMerge(p, cand, box) {
+    if (mode() !== "live") return;
+    if (!window.confirm("Merge “" + p.name + "” into “" + cand.linkedin_name +
+        "”?\nTheir history moves over; this is reversible (unmerge).")) return;
+    post("/api/merge", { from_id: p.id, into_id: cand.linkedin_id })
+      .then(function () {
+        box.innerHTML = '<span class="saved">Merged ✓ — rebuild this page to see them as one.</span>';
+      })
+      .catch(function (e) {
+        box.innerHTML = '<span class="queued">Merge failed (' + esc(e.message) +
+          "). Ask your agent instead:</span><code>" + esc(cand.merge_command) + "</code>";
+      });
+  }
+
+  // ---- table ----------------------------------------------------------------
+  var CHIPS = ["all", "active", "warm", "cooling", "cold", "no data",
+               "flagged", "follow-up due", "email-only"];
+  var state = { chip: "all", q: "", sortK: "days", sortAsc: true, open: null };
+  var ORDER = { "active": 0, "warm": 1, "cooling": 2, "cold": 3, "no data": 4 };
+
+  var html =
+    '<div class="controls" id="chips"></div>' +
+    '<div class="tablewrap"><table><thead><tr>' +
+    '<th data-k="name">Name <span class="arrow"></span></th>' +
+    '<th data-k="company">Company <span class="arrow"></span></th>' +
+    '<th data-k="days">Last touch <span class="arrow"></span></th>' +
+    '<th data-k="bucket">Warmth <span class="arrow"></span></th>' +
+    '<th data-k="n">Activity <span class="arrow"></span></th>' +
+    "</tr></thead><tbody id='rows'></tbody></table></div>";
+  app.innerHTML = html;
+
+  var chips = document.getElementById("chips");
+  CHIPS.forEach(function (c) {
+    var btn = document.createElement("button");
+    btn.className = "obs-chip";
+    btn.textContent = c === "all" ? "All (" + data.people.length + ")" : c;
+    btn.setAttribute("aria-pressed", c === state.chip);
+    btn.onclick = function () {
+      state.chip = c;
+      Array.prototype.forEach.call(chips.querySelectorAll("button"), function (b) {
+        b.setAttribute("aria-pressed", b === btn);
+      });
+      draw();
+    };
+    chips.appendChild(btn);
+  });
+  var search = document.createElement("input");
+  search.type = "search";
+  search.placeholder = "Search name, company, or email";
+  search.oninput = function () { state.q = search.value.toLowerCase(); draw(); };
+  chips.appendChild(search);
+
+  function bucketClass(b) {
+    return { "active": "b-active", "warm": "b-warm", "cooling": "b-cooling",
+             "cold": "b-cold", "no data": "b-nodata" }[b] || "b-nodata";
+  }
+
+  function visible() {
+    return data.people.filter(function (p) {
+      if (state.chip === "flagged" && !p.flag) return false;
+      if (state.chip === "follow-up due" && !p.due) return false;
+      if (state.chip === "email-only" && (p.origin === "linkedin" || !p.n)) return false;
+      if (["all", "flagged", "follow-up due", "email-only"].indexOf(state.chip) < 0 &&
+          p.bucket !== state.chip) return false;
+      if (state.q && (p.name + " " + p.company + " " + p.email)
+          .toLowerCase().indexOf(state.q) < 0) return false;
+      return true;
+    });
+  }
+
+  function rowHtml(p) {
+    var last = p.last
+      ? esc(p.last) + ' <span class="sub">(' + p.days + "d" +
+        (p.last_kind ? " · " + esc(p.last_kind) : "") + ")</span>"
+      : '<span class="sub">—</span>';
+    var nameCell = p.url
+      ? '<a href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.name) + "</a>"
+      : esc(p.name);
+    var originTag = (p.origin !== "linkedin" && p.n)
+      ? ' <span class="sub" title="Created from a sweep; not yet tied to a LinkedIn connection">· email only</span>'
+      : "";
+    var acts = [];
+    if (p.n) acts.push(p.n + " touch" + (p.n === 1 ? "" : "es"));
+    if (p.loops) acts.push('<span class="obs-badge-due">' + p.loops + " open loop" + (p.loops === 1 ? "" : "s") + "</span>");
+    if (p.plans) acts.push(p.plans + " planned");
+    return '<tr class="person" id="p' + p.id + '" data-id="' + p.id + '">' +
+      '<td class="name wrap-any">' +
+      (p.flag ? '<span class="obs-badge-star" title="prioritized">★</span> ' : "") +
+      (p.due ? '<span class="obs-badge-due" title="follow-up due ' + esc(p.follow_up_on || "") + '">◷</span> ' : "") +
+      nameCell +
+      (p.title ? ' <span class="sub">· ' + esc(p.title) + "</span>" : "") + originTag + "</td>" +
+      '<td class="wrap-any">' + esc(p.company) + "</td>" +
+      '<td class="num">' + last + "</td>" +
+      '<td><span class="obs-bucket ' + bucketClass(p.bucket) + '">' + esc(p.bucket) + "</span>" +
+      (p.days != null ? ' <span class="sub">' + p.days + "d</span>" : "") + "</td>" +
+      '<td class="num sub">' + (acts.join(" · ") || "—") + "</td></tr>";
+  }
+
+  function deskHtml(p) {
+    var pri = p.priority || "normal";
+    var segBtn = function (value, label) {
+      return '<button data-pri="' + value + '" aria-pressed="' + (pri === value) + '">' + label + "</button>";
+    };
+    var fu = p.follow_up_on
+      ? "Follow-up set for <strong>" + esc(p.follow_up_on) + "</strong>" +
+        (p.follow_up_reason ? " — " + esc(p.follow_up_reason) : "")
+      : "No follow-up set.";
+    var cands = (data.candidates[String(p.id)] || []);
+    var candHtml = "";
+    if (p.origin !== "linkedin") {
+      candHtml = '<div class="desk-col"><div class="desk-label">Same person as…?</div>';
+      if (cands.length) {
+        candHtml += cands.map(function (c, i) {
+          return '<div class="cand" data-cand="' + i + '"><strong>' + esc(c.linkedin_name) + "</strong>" +
+            (c.linkedin_company ? ' <span class="sub">· ' + esc(c.linkedin_company) + "</span>" : "") +
+            '<div class="why">' + esc(c.why) + "</div>" +
+            (mode() === "live"
+              ? '<button class="obs-btn" data-merge="' + i + '">Yes — merge (reversible)</button>'
+              : '<div class="sub">Ask your agent:</div><code>' + esc(c.merge_command) + "</code>") +
+            "</div>";
+        }).join("");
+      } else {
+        candHtml += '<div class="sub">No LinkedIn match proposed yet. Your agent can run ' +
+          "<code style=\"display:inline;padding:1px 5px;\">reconcile</code> after the next sweep.</div>";
+      }
+      candHtml += "</div>";
+    }
+    return '<tr class="desk" data-desk="' + p.id + '"><td colspan="5">' +
+      '<div class="desk-grid">' +
+      '<div class="desk-col"><div class="desk-label">Priority</div>' +
+      '<div class="seg" data-seg="' + p.id + '">' +
+      segBtn("important", "★ Prioritize") + segBtn("normal", "Normal") +
+      segBtn("muted", "Deprioritize") + "</div>" +
+      '<div class="statusline">' +
+      (pri === "muted" ? "Hidden from warmth and radar (follow-ups still fire)."
+        : pri === "critical" ? "Critical — set via your agent; Prioritize keeps it starred."
+        : pri === "important" ? "Starred on every screen; radar keeps them in view."
+        : "Default cadence.") + "</div></div>" +
+      '<div class="desk-col"><div class="desk-label">Follow up</div>' +
+      '<div class="quick">' +
+      '<button class="obs-btn" data-fu="7">1 week</button>' +
+      '<button class="obs-btn" data-fu="30">1 month</button>' +
+      '<button class="obs-btn" data-fu="182">6 months</button>' +
+      '<input type="date" aria-label="follow up on date">' +
+      '<button class="obs-btn" data-fu="clear">Clear</button></div>' +
+      '<div class="statusline" data-fu-line>' + fu + "</div></div>" +
+      candHtml +
+      "</div>" +
+      '<div class="crosslinks">See their evidence on the ' +
+      '<a href="warmth.html#p' + p.id + '">Warmth screen →</a></div>' +
+      "</td></tr>";
+  }
+
+  function wireDesk(p, deskRow, personRow) {
+    var line = deskRow.querySelector(".statusline");
+    deskRow.querySelector("[data-seg]").onclick = function (ev) {
+      var v = ev.target.getAttribute("data-pri");
+      if (!v) return;
+      Array.prototype.forEach.call(this.querySelectorAll("button"), function (b) {
+        b.setAttribute("aria-pressed", b.getAttribute("data-pri") === v);
+      });
+      setPriority(p, v, line);
+    };
+    var fuLine = deskRow.querySelector("[data-fu-line]");
+    Array.prototype.forEach.call(deskRow.querySelectorAll("[data-fu]"), function (btn) {
+      btn.onclick = function () {
+        var v = btn.getAttribute("data-fu");
+        if (v === "clear") { setFollowUp(p, null, null, fuLine); return; }
+        var d = new Date(data.today + "T12:00:00");
+        d.setDate(d.getDate() + parseInt(v, 10));
+        setFollowUp(p, d.toISOString().slice(0, 10), null, fuLine);
+      };
+    });
+    var dateInput = deskRow.querySelector('input[type="date"]');
+    dateInput.onchange = function () {
+      if (dateInput.value) setFollowUp(p, dateInput.value, null, fuLine);
+    };
+    Array.prototype.forEach.call(deskRow.querySelectorAll("[data-merge]"), function (btn) {
+      btn.onclick = function () {
+        var cand = (data.candidates[String(p.id)] || [])[+btn.getAttribute("data-merge")];
+        if (cand) confirmMerge(p, cand, btn.closest(".cand"));
+      };
+    });
+    deskRow.onclick = function (ev) { ev.stopPropagation(); };
+  }
+
+  function redrawRow(p) {
+    var tr = document.getElementById("p" + p.id);
+    if (!tr) return;
+    var tmp = document.createElement("tbody");
+    tmp.innerHTML = rowHtml(p);
+    var fresh = tmp.firstChild;
+    tr.parentNode.replaceChild(fresh, tr);
+    attachRow(fresh, p);
+  }
+
+  function attachRow(tr, p) {
+    tr.onclick = function (ev) {
+      if (ev.target.tagName === "A") return;
+      var open = document.querySelector("tr.desk");
+      var wasThis = open && open.getAttribute("data-desk") === String(p.id);
+      if (open) open.remove();
+      state.open = null;
+      if (wasThis) return;
+      var tmp = document.createElement("tbody");
+      tmp.innerHTML = deskHtml(p);
+      var desk = tmp.firstChild;
+      tr.parentNode.insertBefore(desk, tr.nextSibling);
+      state.open = p.id;
+      wireDesk(p, desk, tr);
+    };
+  }
+
+  function draw() {
+    var rows = visible();
+    rows.sort(function (a, b) {
+      var k = state.sortK, va, vb;
+      if (k === "days") { va = a.days == null ? 1e9 : a.days; vb = b.days == null ? 1e9 : b.days; }
+      else if (k === "n") { va = -a.n; vb = -b.n; }
+      else if (k === "bucket") { va = ORDER[a.bucket]; vb = ORDER[b.bucket]; }
+      else { va = (a[k] || "").toLowerCase(); vb = (b[k] || "").toLowerCase(); }
+      var r = va < vb ? -1 : va > vb ? 1 : 0;
+      return state.sortAsc ? r : -r;
+    });
+    var body = document.getElementById("rows");
+    body.innerHTML = rows.map(rowHtml).join("");
+    rows.forEach(function (p) {
+      var tr = document.getElementById("p" + p.id);
+      if (tr) attachRow(tr, p);
+    });
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll("th"), function (th) {
+    th.onclick = function () {
+      var k = th.getAttribute("data-k");
+      if (state.sortK === k) state.sortAsc = !state.sortAsc;
+      else { state.sortK = k; state.sortAsc = true; }
+      Array.prototype.forEach.call(document.querySelectorAll("th .arrow"), function (a) {
+        a.textContent = "";
+      });
+      th.querySelector(".arrow").textContent = state.sortAsc ? "↑" : "↓";
+      draw();
+    };
+  });
+
+  draw();
+  renderDock();
+  // The mode probe may resolve after first paint; refresh the dock when it does.
+  setTimeout(renderDock, 1800);
+
+  // Deep links: #p<id> scrolls to the person and opens their working row.
+  function openHash() {
+    var m = (location.hash || "").match(/^#p(\d+)$/);
+    if (!m) return;
+    state.chip = "all"; state.q = ""; search.value = "";
+    Array.prototype.forEach.call(chips.querySelectorAll("button"), function (b) {
+      b.setAttribute("aria-pressed", b.textContent.indexOf("All") === 0);
+    });
+    draw();
+    var row = document.getElementById("p" + m[1]);
+    if (!row) return;
+    row.scrollIntoView({ block: "center" });
+    row.click();
+  }
+  window.addEventListener("hashchange", openHash);
+  openHash();
+})();
+</script>
+</body>
+</html>
