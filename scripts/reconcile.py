@@ -89,6 +89,7 @@ def quality_queue(conn, owner_ids):
             "id": r["id"], "name": r["full_name"], "email": r["email"] or "",
             "origin": r["source"], "interactions": r["n"],
             "muted": r["priority"] == "muted",
+            "priority": r["priority"],
             "verdict": entry["verdict"], "signals": entry["signals"],
             "mute_command": f"trellis.py mute --id {r['id']}",
         })
@@ -108,15 +109,23 @@ def write_queue(data_dir, name, entries):
 
 def apply_safe_mutes(conn, quality):
     """Reversible only: mute owner addresses + confident non-people that are
-    not already muted. Ambiguous entries are never touched."""
-    muted = []
+    not already muted. Ambiguous entries are never touched — and neither is
+    anyone the user deliberately prioritized: their own judgement outranks a
+    heuristic, and `unmute` can only restore 'normal', so overwriting an
+    important/critical mark here would destroy it for good.
+
+    Returns (muted, protected) — the second list is worth telling them about."""
+    muted, protected = [], []
     for e in quality:
         if e["muted"] or e["verdict"] not in ("non_person", "owner"):
+            continue
+        if (e.get("priority") or "normal") in ("important", "critical"):
+            protected.append(e)
             continue
         trellis.set_priority(conn, e["id"], "muted")
         muted.append(e)
     conn.commit()
-    return muted
+    return muted, protected
 
 
 def main():
@@ -145,7 +154,7 @@ def main():
           f"{confident} confidently mutable) -> {p2}")
 
     if a.apply:
-        muted = apply_safe_mutes(conn, quality)
+        muted, protected = apply_safe_mutes(conn, quality)
         if muted:
             print(f"\nMuted {len(muted)} (reversible with trellis.py unmute --id N):")
             for e in muted:
@@ -153,6 +162,13 @@ def main():
         else:
             print("\nNothing to mute — owner addresses and confident non-people "
                   "are already handled.")
+        if protected:
+            print(f"\nLeft alone — you marked these people yourself, so your call "
+                  f"wins over the heuristic ({len(protected)}):")
+            for e in protected:
+                print(f"  #{e['id']} {e['name']} <{e['email']}> — {e['priority']}; "
+                      f"looks like: {e['signals'][0]}")
+            print("  Mute one anyway with: trellis.py mute --id N")
     elif confident:
         print("\nNothing changed (propose-only). Re-run with --apply to mute the "
               "confident non-people; identity merges always stay per-decision.")

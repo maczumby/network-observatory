@@ -35,8 +35,12 @@ SYSTEM_LOCAL_PARTS = {
     "subscription", "reply", "mail", "email", "automated", "robot", "bot",
 }
 
-# Domain labels that mark a sending domain as machinery even when the local
-# part looks personal (calendar-invite@em.notion.so and friends).
+# Subdomain labels that mark a sending domain as machinery even when the local
+# part looks personal (calendar-invite@em.notion.so and friends). These are
+# matched ONLY against subdomain labels, never the registrable domain itself:
+# "mail" as a subdomain (mail.notion.so) is a sending host, but as the domain
+# itself (mail.ru, mail.com) it's one of the largest consumer mail providers in
+# the world, and its users are people.
 SYSTEM_DOMAIN_LABELS = {
     "noreply", "no-reply", "donotreply", "notifications", "notification",
     "mailer", "mail", "email", "em", "bounce", "bounces", "mta", "smtp",
@@ -86,9 +90,10 @@ def classify_contact(name, email):
     if domain:
         if domain.endswith("calendar.google.com"):
             signals.append(f"calendar resource address ({domain}) — a room, not a person")
-        labels = set(domain.split("."))
-        hits = sorted(labels & SYSTEM_DOMAIN_LABELS)
-        if hits:
+        # Subdomains only: everything left of the registrable domain. A bare
+        # two-label domain has no subdomain and so can never match here.
+        subdomains = set(domain.split(".")[:-2])
+        if subdomains & SYSTEM_DOMAIN_LABELS:
             signals.append(f"machine sending domain ({domain})")
     if re.search(r"\bvia\b", name.lower()):
         signals.append(f"'via' display name ({name!r}) — a relay, not the person's own address")

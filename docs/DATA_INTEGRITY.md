@@ -32,7 +32,7 @@ this view rather than restating the filter. It encodes three rules:
 |---|---|
 | No `merged_into_*` tombstones | A merged alias is kept for reversibility, not for display. |
 | No `muted` people | Muting is how you say "this is not a person I know". |
-| Gmail/calendar rows only once they carry an interaction | A bare address with no signal is a guess, not a contact. |
+| Gmail/calendar rows only once they carry signal | A bare address with nothing attached is a guess, not a contact. Signal means a past interaction **or an upcoming meeting** — the person you're seeing on Thursday shouldn't be invisible until after you've met them. |
 
 Source comparisons are case-insensitive everywhere, and `source` is written
 lowercase. A `Gmail` row and a `gmail` row are the same thing; if the gate only
@@ -52,9 +52,11 @@ person.
 2. **Confirm.** You (or your agent on your say-so) run
    `trellis.py merge --from N --into M`, or confirm it from the People screen.
    History moves; the old row is marked, never deleted.
-3. **Reverse.** Every merge is journaled. `trellis.py unmerge --merge-id N`
-   puts it back, and refuses if metadata changed after the merge rather than
-   guessing.
+3. **Reverse.** Every merge is journaled — priority, mode, **and follow-up
+   dates**. `trellis.py unmerge --merge-id N` puts it all back, and refuses if
+   metadata changed after the merge rather than guessing. When both people
+   carry a follow-up, the merged person keeps the **earlier** date: a merge
+   must never quietly push a reminder later.
 
 The same shape applies to muting: reversible with `unmute`, always.
 
@@ -96,6 +98,16 @@ The verdicts do different work:
   know?"* A relay display name always lands here, because a real person may be
   behind it.
 
+Machine-domain detection matches **subdomains only** (`em.notion.so`,
+`bounce.sendgrid.net`), never the registrable domain: `mail.ru` and `mail.com`
+are consumer mail providers with hundreds of millions of human users.
+
+And `--apply` never mutes someone you marked `important` or `critical`
+yourself. Your judgement outranks the classifier — and since `unmute` can only
+restore `normal`, muting there would erase a mark that nothing recorded. Those
+people are listed separately so you can mute one by hand if you actually meant
+to.
+
 Muting hides someone from warmth, radar, and all three screens. It does not
 delete anything.
 
@@ -127,8 +139,11 @@ direction-less `email exchanged` era stays NULL).
 Warmth reads the newest interaction **by date, not by row id** — paged sweeps
 ingest older messages after newer ones — and takes its direction as-is. A newer
 direction-less touch (a meeting) means we no longer know who wrote last, so it
-wins over an older `sent`. Saying "you wrote last" when the truth is "you met
-last" is exactly the kind of small lie that erodes trust in the whole tool.
+wins over an older `sent`. When several touches share that newest date, they
+have to agree: if you wrote and they wrote the same day, "who wrote last" has
+no answer, and picking one by insertion order would be inventing one. Saying
+"you wrote last" when the truth is "you met last" is exactly the kind of small
+lie that erodes trust in the whole tool.
 
 ---
 
@@ -168,6 +183,11 @@ Afterwards it asserts the schema it expects. A database that carries a
 writing against a structure it doesn't understand. A loud failure on the first
 run is recoverable; a silent one corrupts a graph you may have spent months
 building.
+
+One consequence worth knowing: because the exporters go through the same
+`connect()`, **building a page opens the database read-write**. It adds columns
+and recreates a view; it never rewrites your rows. If you need a strictly
+read-only pass, copy the file first.
 
 ---
 

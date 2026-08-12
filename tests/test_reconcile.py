@@ -173,9 +173,10 @@ class ReconcileTestCase(unittest.TestCase):
         self.assertEqual(0, self.meta_count())
 
     def test_apply_safe_mutes_only_touches_confident_rows(self):
-        muted = reconcile.apply_safe_mutes(self.conn, self.quality())
+        muted, protected = reconcile.apply_safe_mutes(self.conn, self.quality())
         self.assertEqual({self.nonperson_id, self.owner_id},
                          {e["id"] for e in muted})
+        self.assertEqual([], protected)
         self.assertEqual("muted", self.priority(self.nonperson_id))
         self.assertEqual("muted", self.priority(self.owner_id))
         self.assertIsNone(self.priority(self.stray_id))
@@ -184,9 +185,20 @@ class ReconcileTestCase(unittest.TestCase):
 
     def test_apply_safe_mutes_twice_is_a_no_op(self):
         reconcile.apply_safe_mutes(self.conn, self.quality())
-        again = reconcile.apply_safe_mutes(self.conn, self.quality())
+        again, protected = reconcile.apply_safe_mutes(self.conn, self.quality())
         self.assertEqual([], again)
+        self.assertEqual([], protected)
         self.assertEqual(2, self.meta_count())
+
+    def test_a_person_you_prioritized_is_never_muted_by_heuristic(self):
+        """Your own judgement outranks the classifier — and since `unmute`
+        can only restore 'normal', muting here would destroy the mark."""
+        trellis.set_priority(self.conn, self.nonperson_id, "important")
+        self.conn.commit()
+        muted, protected = reconcile.apply_safe_mutes(self.conn, self.quality())
+        self.assertEqual({self.owner_id}, {e["id"] for e in muted})
+        self.assertEqual({self.nonperson_id}, {e["id"] for e in protected})
+        self.assertEqual("important", self.priority(self.nonperson_id))
 
     def test_unmute_restores_a_muted_contact(self):
         reconcile.apply_safe_mutes(self.conn, self.quality())

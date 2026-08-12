@@ -38,7 +38,10 @@ def load_people(db_path):
         raise SystemExit(
             f"DB not found: {db_path}\n"
             "Run this first:  python3 scripts/linkedin_import.py")
-    conn = trellis.connect(db_path)  # migrates; people_v is always present
+    # Note: building a page opens the DB read-write, because connect() runs the
+    # additive migration that guarantees people_v exists. It adds columns and
+    # recreates a view; it never rewrites your rows.
+    conn = trellis.connect(db_path)
     people = common.load_people(conn)
     conn.close()
     return people

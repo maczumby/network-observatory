@@ -254,6 +254,60 @@ class WriteApiTest(_ServerCase):
                                         "value": "normal"})
         self.assertIsNone(resp.getheader("Access-Control-Allow-Origin"))
 
+    def test_a_trellis_systemexit_becomes_an_answer_not_a_dropped_socket(self):
+        """trellis exits on hard failures — fine for a CLI, fatal for a request
+        thread, which would close the socket with no status line at all."""
+        conn = trellis.connect(self.db_path)
+        for name in ("Twin Person", "Twin Person"):
+            trellis.find_or_create_person(conn, name=name,
+                                          email=f"{name}@{id(name)}.test",
+                                          origin="gmail")
+        conn.execute("""INSERT INTO connections (natural_key, full_name, first_name,
+            last_name, url, email, company, title, func, rank, source,
+            first_seen_at, updated_at)
+            VALUES ('dupe:twin','Twin Person','Twin','Person','','other@x.test',
+                    '','','Other',2,'gmail',?,?)""", (trellis.now(), trellis.now()))
+        conn.commit()
+        conn.close()
+        resp = self.api("/api/person", {"action": "flag", "name": "Twin Person"})
+        self.assertEqual(resp.status, 400)
+        self.assertIn("matches", resp.json.get("error", ""))
+
+    def test_the_flag_action_raises_but_never_downgrades(self):
+        """The map's reconnect toggle must not be able to strip a 'critical'
+        the user set deliberately somewhere else."""
+        self.api("/api/person", {"action": "priority", "id": self.ada,
+                                 "value": "critical"})
+        self.api("/api/person", {"action": "flag", "id": self.ada})
+        self.assertEqual(self.meta(self.ada)["priority"], "critical")
+        self.api("/api/person", {"action": "unflag", "id": self.ada})
+        self.assertEqual(self.meta(self.ada)["priority"], "critical",
+                         "unflagging destroyed a critical priority")
+
+    def test_unflag_steps_important_back_to_normal(self):
+        self.api("/api/person", {"action": "priority", "id": self.ada,
+                                 "value": "important"})
+        self.api("/api/person", {"action": "unflag", "id": self.ada})
+        self.assertEqual(self.meta(self.ada)["priority"], "normal")
+
+
+class MissingDatabaseTest(_ServerCase):
+    """A mistyped --db must not be silently created and written to."""
+
+    def test_writes_refuse_when_the_database_is_missing(self):
+        real = self.serve._AuthHandler.db_path
+        missing = os.path.join(self.tmp, "nope", "linkedin.db")
+        self.serve._AuthHandler.db_path = missing
+        try:
+            resp = self.api("/api/person", {"action": "priority", "id": 1,
+                                            "value": "important"})
+            self.assertEqual(resp.status, 500)
+            self.assertIn("no database", resp.json.get("error", ""))
+            self.assertFalse(os.path.exists(missing),
+                             "a wrong --db path manufactured a database")
+        finally:
+            self.serve._AuthHandler.db_path = real
+
 
 class ReadOnlyServerTest(_ServerCase):
     """Default posture: the API simply isn't there."""

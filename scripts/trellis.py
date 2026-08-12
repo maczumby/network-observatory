@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS identity_merge_meta (
     merge_id INTEGER NOT NULL REFERENCES identity_merges(id),
     connection_id INTEGER NOT NULL REFERENCES connections(id),
     existed INTEGER NOT NULL, priority TEXT, mode TEXT, updated_at TEXT,
+    follow_up_on TEXT, follow_up_reason TEXT,
     PRIMARY KEY (merge_id, connection_id)
 );
 CREATE INDEX IF NOT EXISTS idx_int_conn ON interactions(connection_id);
@@ -161,7 +162,10 @@ LEFT JOIN person_meta m ON m.connection_id = c.id
 WHERE lower(COALESCE(c.source,'')) NOT LIKE 'merged_into_%'
   AND COALESCE(m.priority,'normal') <> 'muted'
   AND (lower(COALESCE(c.source,'')) NOT IN ('gmail','calendar')
-       OR EXISTS (SELECT 1 FROM interactions i WHERE i.connection_id = c.id))
+       OR EXISTS (SELECT 1 FROM interactions i WHERE i.connection_id = c.id)
+       -- an upcoming meeting is signal too: the person you're seeing on
+       -- Thursday must not be invisible until after you've met them
+       OR EXISTS (SELECT 1 FROM calendar_plans cp WHERE cp.connection_id = c.id))
 """
 
 # Columns migrate() must find after running. A DB that fails this check carries a
@@ -175,10 +179,14 @@ _REQUIRED_COLUMNS = {
 
 
 def _add_column(conn, table, column, decl):
+    """Add a column if it isn't there. Tolerates both 'already present' and
+    'table not created yet' — the DDL above creates missing tables with the
+    current shape, so there is nothing to upgrade in that case."""
     try:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
     except sqlite3.OperationalError as e:
-        if "duplicate column" not in str(e).lower():
+        message = str(e).lower()
+        if "duplicate column" not in message and "no such table" not in message:
             raise
 
 
@@ -196,12 +204,20 @@ def migrate(conn):
     _add_column(conn, "interactions", "direction", "TEXT")
     _add_column(conn, "person_meta", "follow_up_on", "TEXT")
     _add_column(conn, "person_meta", "follow_up_reason", "TEXT")
-    # One-time backfill from the legacy summary strings; already-set rows and the
-    # direction-less "email exchanged" era stay untouched.
+    # One-time backfill from the legacy summary strings. The match is a
+    # substring test, deliberately: it reproduces exactly what the old
+    # summary-scanning warmth code displayed ("sent" anywhere wins, else
+    # "received"), so upgrading never loses a direction a user could already
+    # see. "email exchanged" contains neither and stays NULL. Only NULL rows
+    # are touched, so this can't overwrite anything set since.
     conn.execute("""UPDATE interactions SET direction='sent'
-        WHERE direction IS NULL AND lower(summary) LIKE 'email sent%'""")
+        WHERE direction IS NULL AND lower(summary) LIKE '%sent%'""")
     conn.execute("""UPDATE interactions SET direction='received'
-        WHERE direction IS NULL AND lower(summary) LIKE 'email received%'""")
+        WHERE direction IS NULL AND lower(summary) LIKE '%received%'""")
+    # The merge journal has to snapshot follow-ups too, or merging someone
+    # silently destroys a date the user set and unmerge can't give it back.
+    _add_column(conn, "identity_merge_meta", "follow_up_on", "TEXT")
+    _add_column(conn, "identity_merge_meta", "follow_up_reason", "TEXT")
     conn.execute("DROP VIEW IF EXISTS people_v")
     conn.execute(PEOPLE_V_SQL)
     for table, cols in _REQUIRED_COLUMNS.items():
@@ -514,16 +530,23 @@ def warmth_rows(conn, include_muted=False):
     # means we no longer know who wrote last, so NULL wins over an older value.
     # Match on the newest DATE, not the highest row id — paged sweeps ingest
     # older messages after newer ones, so id order isn't chronological.
+    # Several touches can share the newest date, and ingest order is not
+    # chronological — so rather than let insertion order pick a winner, agree
+    # or say nothing: one direction across that day reports it, a mixed day
+    # (you wrote and they wrote) reports None.
     by_id = {p["id"]: p for p in rows if p["interactions"]}
     if by_id:
+        seen = {}
         for r in conn.execute("""
             SELECT i.connection_id AS cid, i.direction FROM interactions i
             JOIN (SELECT connection_id, MAX(occurred_on) AS lo
                   FROM interactions GROUP BY connection_id) x
-              ON x.connection_id = i.connection_id AND i.occurred_on = x.lo
-            ORDER BY i.id"""):
+              ON x.connection_id = i.connection_id AND i.occurred_on = x.lo"""):
             if r["cid"] in by_id:
-                by_id[r["cid"]]["direction"] = r["direction"]
+                seen.setdefault(r["cid"], set()).add(r["direction"])
+        for cid, directions in seen.items():
+            by_id[cid]["direction"] = (directions.pop() if len(directions) == 1
+                                       else None)
     return rows
 
 
@@ -1175,12 +1198,15 @@ def cmd_merge(conn, a):
         dst_meta = meta_for(conn, a.into)
         for cid, meta in ((a.src, src_meta), (a.into, dst_meta)):
             conn.execute("""INSERT INTO identity_merge_meta
-                (merge_id, connection_id, existed, priority, mode, updated_at)
-                VALUES (?,?,?,?,?,?)""",
+                (merge_id, connection_id, existed, priority, mode, updated_at,
+                 follow_up_on, follow_up_reason)
+                VALUES (?,?,?,?,?,?,?,?)""",
                 (merge_id, cid, 1 if meta else 0,
                  meta["priority"] if meta else None,
                  meta["mode"] if meta else None,
-                 meta["updated_at"] if meta else None))
+                 meta["updated_at"] if meta else None,
+                 meta["follow_up_on"] if meta else None,
+                 meta["follow_up_reason"] if meta else None))
 
         if src_meta:
             order = {"muted": 0, "normal": 1, "important": 2, "critical": 3}
@@ -1188,11 +1214,24 @@ def cmd_merge(conn, a):
             dst_priority = (dst_meta["priority"] if dst_meta else None) or "normal"
             priority = max((src_priority, dst_priority), key=lambda p: order.get(p, 1))
             mode = (dst_meta["mode"] if dst_meta else None) or src_meta["mode"]
+            # Keep the follow-up the user set. If both sides carry one, the
+            # earlier date wins — a merge must never push a reminder later.
+            dates = [m["follow_up_on"] for m in (dst_meta, src_meta)
+                     if m and m["follow_up_on"]]
+            follow_up_on = min(dates) if dates else None
+            follow_up_reason = None
+            for m in (dst_meta, src_meta):
+                if m and m["follow_up_on"] == follow_up_on:
+                    follow_up_reason = m["follow_up_reason"]
+                    break
             conn.execute("""INSERT INTO person_meta
-                (connection_id, priority, mode, updated_at) VALUES (?,?,?,?)
+                (connection_id, priority, mode, updated_at, follow_up_on,
+                 follow_up_reason) VALUES (?,?,?,?,?,?)
                 ON CONFLICT(connection_id) DO UPDATE SET priority=excluded.priority,
-                mode=excluded.mode, updated_at=excluded.updated_at""",
-                (a.into, priority, mode, stamp))
+                mode=excluded.mode, updated_at=excluded.updated_at,
+                follow_up_on=excluded.follow_up_on,
+                follow_up_reason=excluded.follow_up_reason""",
+                (a.into, priority, mode, stamp, follow_up_on, follow_up_reason))
             conn.execute("DELETE FROM person_meta WHERE connection_id=?", (a.src,))
 
         merged_meta = meta_for(conn, a.into)
@@ -1292,9 +1331,11 @@ def cmd_unmerge(conn, a):
             conn.execute("DELETE FROM person_meta WHERE connection_id=?", (cid,))
             if snapshot["existed"]:
                 conn.execute("""INSERT INTO person_meta
-                    (connection_id, priority, mode, updated_at) VALUES (?,?,?,?)""",
+                    (connection_id, priority, mode, updated_at, follow_up_on,
+                     follow_up_reason) VALUES (?,?,?,?,?,?)""",
                     (cid, snapshot["priority"], snapshot["mode"],
-                     snapshot["updated_at"]))
+                     snapshot["updated_at"], snapshot["follow_up_on"],
+                     snapshot["follow_up_reason"]))
 
         conn.execute("UPDATE connections SET source=?, updated_at=? WHERE id=?",
                      (merge["from_source"], now(), merge["from_connection_id"]))

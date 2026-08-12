@@ -227,11 +227,18 @@ def api_person(db_path, body):
                     created_at) VALUES (?,?, 'context', ?)""",
                     (cid, note, trellis.now()))
         elif action == "flag":
-            # legacy map action: raise to important, never downgrade
+            # The map's reconnect flag, which raises but never downgrades —
+            # the same rule cmd_apply enforces for the paste-block path.
             m = trellis.meta_for(conn, cid)
             cur = (m["priority"] if m else None) or "normal"
             if cur in ("normal", "muted"):
                 trellis.set_priority(conn, cid, "important")
+        elif action == "unflag":
+            # Clearing the map's flag steps back to normal, but never strips a
+            # 'critical' the user set deliberately elsewhere.
+            m = trellis.meta_for(conn, cid)
+            if ((m["priority"] if m else None) or "normal") == "important":
+                trellis.set_priority(conn, cid, "normal")
         else:
             return 400, {"ok": False, "error": f"unknown action {action!r}"}
         conn.commit()
@@ -380,6 +387,13 @@ class _AuthHandler(http.server.SimpleHTTPRequestHandler):
         except (ValueError, AssertionError):
             self._send_json(400, {"ok": False, "error": "invalid JSON object"})
             return
+        if not os.path.exists(self.db_path):
+            # trellis.connect() would happily create an empty DB here, and the
+            # write would report success into a file nobody reads.
+            self._send_json(500, {"ok": False, "error":
+                                  f"no database at {self.db_path} — start serve.py "
+                                  f"with the right --db"})
+            return
         try:
             if path == "/api/person":
                 status, payload = api_person(self.db_path, body)
@@ -387,6 +401,12 @@ class _AuthHandler(http.server.SimpleHTTPRequestHandler):
                 status, payload = api_merge(self.db_path, body)
             else:
                 status, payload = 404, {"ok": False, "error": "unknown endpoint"}
+        except SystemExit as e:
+            # trellis reports hard failures (schema mismatch, an ambiguous name)
+            # by exiting — fine for a CLI, fatal for a request thread, which
+            # would drop the socket with no status line and leave the page
+            # guessing. Turn it back into an answer.
+            status, payload = 400, {"ok": False, "error": str(e)}
         except Exception as e:  # a write must never take the server down
             status, payload = 500, {"ok": False, "error": f"{type(e).__name__}: {e}"}
         self._send_json(status, payload)
