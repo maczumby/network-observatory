@@ -129,6 +129,11 @@ CREATE INDEX IF NOT EXISTS idx_int_conn_date ON interactions(connection_id, occu
 CREATE INDEX IF NOT EXISTS idx_loop_conn ON open_loops(connection_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_int_srcref
     ON interactions(source, source_ref) WHERE source_ref IS NOT NULL;
+"""
+
+# Tables added after v1.11.1. migrate() creates these itself so that running it
+# against an older DB is enough — it never depends on the DDL above having run.
+CALENDAR_PLANS_DDL = """
 CREATE TABLE IF NOT EXISTS calendar_plans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     connection_id INTEGER NOT NULL REFERENCES connections(id),
@@ -136,6 +141,7 @@ CREATE TABLE IF NOT EXISTS calendar_plans (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_plan_srcref
     ON calendar_plans(source, source_ref) WHERE source_ref IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_plan_conn ON calendar_plans(connection_id);
 """
 
 # The one trusted read over people: live (not merged tombstones), not muted, and
@@ -180,6 +186,13 @@ def migrate(conn):
     """Bring any older DB up to the current schema. Additive and idempotent:
     columns are only ever added, the backfill touches only NULLs, and the view is
     recreated so the shipped definition is always the one in effect."""
+    try:
+        conn.executescript(CALENDAR_PLANS_DDL)
+    except sqlite3.OperationalError:
+        # A pre-existing table of a different shape makes the indexes fail.
+        # Swallow it here so the column assertion below can say what's wrong
+        # in plain language instead of surfacing a raw sqlite traceback.
+        pass
     _add_column(conn, "interactions", "direction", "TEXT")
     _add_column(conn, "person_meta", "follow_up_on", "TEXT")
     _add_column(conn, "person_meta", "follow_up_reason", "TEXT")

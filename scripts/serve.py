@@ -28,11 +28,13 @@ Standard library only, to match the rest of the tool (no pip installs).
 """
 
 import argparse
+import contextlib
 import functools
 import hashlib
 import hmac
 import html
 import http.server
+import io
 import json
 import os
 import secrets
@@ -247,7 +249,10 @@ def api_merge(db_path, body):
     try:
         ns = argparse.Namespace(src=src, into=into)
         try:
-            trellis.cmd_merge(conn, ns)  # journaled; reversible via unmerge
+            # cmd_merge narrates for a human at a terminal; a served request
+            # gets its answer in the response body, so keep the console quiet.
+            with contextlib.redirect_stdout(io.StringIO()):
+                trellis.cmd_merge(conn, ns)  # journaled; reversible via unmerge
         except SystemExit as e:
             return 400, {"ok": False, "error": str(e)}
         return 200, {"ok": True, "from_id": src, "into_id": into}
