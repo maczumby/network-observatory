@@ -121,7 +121,8 @@ def main():
     data = json.loads(raw)
     records = data if isinstance(data, list) else [data]
 
-    conn = trellis.connect(a.db)
+    conn = trellis.connect(
+        a.db, create=(os.path.abspath(a.db) == os.path.abspath(trellis.DEFAULT_DB)))
     counts = ingest_records(conn, records,
                             owner_ids=trellis.load_owner_identities(a.db))
     conn.close()

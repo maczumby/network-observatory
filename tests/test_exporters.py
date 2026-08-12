@@ -60,11 +60,29 @@ class SharedHelpersTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             common.inline_assets("<html><style></style></html>", "map")
 
-    def test_status_of_reads_priority_and_due_date(self):
-        self.assertEqual(common.status_of({"priority": "important"}),
-                         {"star": True, "due": False})
-        self.assertTrue(common.status_of({"follow_up_on": "2000-01-01"})["due"])
-        self.assertFalse(common.status_of({"follow_up_on": "2999-01-01"})["due"])
+    def test_status_of_is_the_shape_the_payloads_carry(self):
+        """It returns flag/due as 0/1 because that is what the screens read —
+        an earlier version returned star/True and so could never be used."""
+        self.assertEqual(common.status_of("important", None),
+                         {"flag": 1, "due": 0})
+        self.assertEqual(common.status_of("critical", None)["flag"], 1)
+        self.assertEqual(common.status_of("muted", None)["flag"], 0)
+        self.assertEqual(common.status_of(None, None)["flag"], 0)
+        self.assertEqual(common.status_of("normal", "2000-01-01")["due"], 1)
+        self.assertEqual(common.status_of("normal", "2999-01-01")["due"], 0)
+
+    def test_every_screen_derives_status_through_status_of(self):
+        """The rule lived in four places and one had already drifted. Assert
+        the exporters call the shared helper rather than re-deriving."""
+        import inspect
+        for fn, label in ((common.load_people, "common.load_people"),
+                          (workbench_export.build_payload,
+                           "workbench_export.build_payload")):
+            source = inspect.getsource(fn)
+            with self.subTest(where=label):
+                self.assertIn("status_of(", source, f"{label} lost the shared call")
+                self.assertNotIn('("important", "critical")', source,
+                                 f"{label} re-derives the rule inline")
 
 
 class ExportedPagesTest(unittest.TestCase):

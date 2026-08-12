@@ -131,7 +131,11 @@ window.WARMTH = __WARMTH_DATA__;
     "the sweep hasn't reached them (or they never emailed you at this address)." +
     (cov.muted_hidden ? " " + cov.muted_hidden +
       " muted sender" + (cov.muted_hidden === 1 ? "" : "s") +
-      " (newsletters, notifications) are hidden." : "") + "</div>" +
+      " (newsletters, notifications) are hidden." : "") +
+    (cov.unreconciled_hidden ? " " + cov.unreconciled_hidden +
+      " swept address" + (cov.unreconciled_hidden === 1 ? " is" : "es are") +
+      " also hidden until there's a real interaction behind " +
+      (cov.unreconciled_hidden === 1 ? "it" : "them") + "." : "") + "</div>" +
     '<div class="controls" id="chips"></div>' +
     '<div class="tablewrap"><table><thead><tr>' +
     '<th data-k="name">Name <span class="arrow"></span></th>' +

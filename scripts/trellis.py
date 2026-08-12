@@ -38,6 +38,7 @@ import os
 import re
 import sqlite3
 import sys
+import unicodedata
 from datetime import date, datetime, timezone
 from difflib import SequenceMatcher
 
@@ -153,6 +154,11 @@ CREATE INDEX IF NOT EXISTS idx_plan_conn ON calendar_plans(connection_id);
 # display), each row carrying WHY the product would hide them. Stating the
 # rules once, here, is the point: people_v below is a filter over this view,
 # and the "show me what's hidden" paths read this one — so the two can't drift.
+# Bumped whenever migrate() gains work to do. A DB already stamped with this
+# skips the whole pass, so ordinary reads and writes stop paying for it.
+SCHEMA_VERSION = 3
+
+
 PEOPLE_ALL_V_SQL = """
 CREATE VIEW people_all_v AS
 SELECT c.id, c.natural_key, c.first_name, c.last_name, c.full_name,
@@ -209,10 +215,47 @@ def _add_column(conn, table, column, decl):
             raise
 
 
+def _sql_shape(sql):
+    """Whitespace-insensitive form of a CREATE VIEW statement, so formatting
+    differences don't read as a changed definition."""
+    return " ".join((sql or "").split())
+
+
+def _schema_is_current(conn):
+    """Cheap enough to run on every connection, and honest enough to be worth
+    trusting: the version stamp alone would let a dropped view or a diverged
+    table go unrepaired, so confirm the shape too. These are all reads — no
+    schema change, no write lock, nothing for another connection to trip over."""
+    if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+        return False
+    # Compare the stored definitions, not just the names: the shipped view is
+    # meant to be authoritative, so a hand-edited one must still be replaced.
+    stored = {r[0]: (r[1] or "") for r in conn.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type='view'")}
+    for name, want in (("people_all_v", PEOPLE_ALL_V_SQL),
+                       ("people_v", PEOPLE_V_SQL)):
+        if _sql_shape(stored.get(name, "")) != _sql_shape(want):
+            return False
+    for table, cols in _REQUIRED_COLUMNS.items():
+        have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if not set(cols) <= have:
+            return False
+    return True
+
+
 def migrate(conn):
     """Bring any older DB up to the current schema. Additive and idempotent:
-    columns are only ever added, the backfill touches only NULLs, and the view is
-    recreated so the shipped definition is always the one in effect."""
+    columns are only ever added, the backfill touches only NULLs, and the views
+    are recreated so the shipped definitions are always the ones in effect.
+
+    Runs on every connect(), so it takes a fast path once the DB is already at
+    this version. That isn't only about speed: the view recreate is a schema
+    change, and doing one per request invalidates prepared statements on other
+    live connections — the usual source of "database schema has changed" when
+    several writes land together, which is exactly what marking a run of people
+    from the People screen produces."""
+    if _schema_is_current(conn):
+        return
     try:
         conn.executescript(CALENDAR_PLANS_DDL)
     except sqlite3.OperationalError:
@@ -250,10 +293,21 @@ def migrate(conn):
                 f"{', '.join(missing)} — this DB carries a different CRM-unify "
                 f"schema. Do not proceed; run sqlite3 on the DB, capture "
                 f"'.schema {table}', and report it.")
+    # Stamped last, so an interrupted migration simply runs again next time.
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
 
 
-def connect(db_path):
+def connect(db_path, create=True):
+    """Open the memory DB. `create=False` refuses to bring a missing file into
+    existence, which is what every command wants when the user named a path:
+    a typo used to produce a brand-new empty database, a confident "no contacts
+    yet", and — worse — writes that landed in a file nobody would ever read."""
+    if not create and not os.path.exists(db_path):
+        raise SystemExit(
+            f"No database at {db_path}\n"
+            "Check the path. If this is a new setup, import a LinkedIn export "
+            "first:  python3 scripts/linkedin_import.py")
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -427,6 +481,17 @@ def _add_months(d, months):
     day_max = [31, 29 if (y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)) else 28,
                31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo]
     return date(y, mo + 1, min(d.day, day_max))
+
+
+def _valid_date(text):
+    """A user-supplied date, normalized to YYYY-MM-DD or refused. Storing
+    whatever was typed means a later reader gets None back from days_since()
+    and prints it — better to catch the typo at the point of entry."""
+    t = (text or "").strip()[:10]
+    try:
+        return date.fromisoformat(t).isoformat()
+    except ValueError:
+        raise SystemExit(f"'{text}' is not a date I can read. Use YYYY-MM-DD.")
 
 
 def parse_follow_up(text, today=None):
@@ -647,9 +712,23 @@ def _match_candidates(conn):
     # local part can take, then only run the expensive comparison on people who
     # share one. Near-misses like "jon"/"john" still meet ("jo"), so this
     # narrows the search without narrowing the results.
+    def _keys(text):
+        """Blocking keys for one name string: its first two letters, plus the
+        two after that. The second key tolerates a different FIRST letter, so
+        transliterations meet ('cristina'/'kristina' both key on 'ri')."""
+        out = set()
+        for t in [text] + text.split():
+            if len(t) >= 2:
+                out.add(t[:2])
+            if len(t) >= 3:
+                out.add(t[1:3])
+        return out
+
     def _prefixes(row):
-        return {t[:2] for t in (_norm(row["first_name"]), _norm(row["last_name"]),
-                                _norm(row["full_name"])) if len(t) >= 2}
+        keys = set()
+        for field in ("first_name", "last_name", "full_name"):
+            keys |= _keys(_norm(row[field]))
+        return keys
 
     by_prefix, by_local = {}, {}
     for p in linkedin:
@@ -665,7 +744,7 @@ def _match_candidates(conn):
         sname = _norm(s["full_name"])
         local = (s["email"] or "").split("@")[0].lower()
         nearby = {}
-        for pref in {t[:2] for t in sname.split() + [sname] if len(t) >= 2}:
+        for pref in _keys(sname):
             for p in by_prefix.get(pref, ()):
                 nearby[p["id"]] = p
         for form in {local, _norm_local(local), _norm_local(local).replace(".", "")}:
@@ -699,7 +778,7 @@ def _match_candidates(conn):
         # three shown should be the three best, not the three lowest row ids.
         best.sort(key=lambda t: (-t[0], t[1]["id"]))
         best = [(p, why) for _, p, why in best]
-        if not best and " " not in (s["full_name"] or "").strip():
+        if not best and sname and " " not in (s["full_name"] or "").strip():
             firsts = by_first.get(sname, [])
             if len(firsts) == 1:
                 best.append((firsts[0], "only LinkedIn contact with that first name"))
@@ -795,7 +874,7 @@ def cmd_capture(conn, a):
                                 company=a.company, title=a.title)
     p = person_row(conn, cid)
     recorded = [f"person: {label(p)}"]
-    when = a.date or TODAY.isoformat()
+    when = _valid_date(a.date) if a.date else TODAY.isoformat()
     if a.interaction:
         conn.execute("""INSERT INTO interactions (connection_id, kind, occurred_on,
             summary, source, source_ref, confidence, created_at)
@@ -1032,8 +1111,13 @@ def cmd_radar(conn, a):
         m = meta_for(conn, cid)
         if m and (m["priority"] == "muted" or m["follow_up_on"]):
             continue  # already parked, or already has a date they chose
+        # occurred_on is a DATE, so the email you sent that same afternoon is
+        # equal to the meeting date, not greater — and meet-then-write-that-day
+        # is the most common pattern there is. Anything that isn't the meeting
+        # itself, on or after that date, counts as having been in touch.
         since = conn.execute("""SELECT COUNT(*) FROM interactions
-            WHERE connection_id=? AND occurred_on > ?""", (cid, r["met_on"])).fetchone()[0]
+            WHERE connection_id=? AND occurred_on >= ? AND kind <> 'meeting'""",
+            (cid, r["met_on"])).fetchone()[0]
         if since:
             continue  # you've been in touch since; nothing to nudge about
         if conn.execute("""SELECT 1 FROM open_loops WHERE connection_id=?
@@ -1043,9 +1127,14 @@ def cmd_radar(conn, a):
                 AND planned_on >= ?""", (cid, TODAY.isoformat())).fetchone():
             continue  # you're seeing them again anyway
         days = days_since(r["met_on"])
-        add(cid, "met_no_followup", 95,
-            f"{p['full_name']} — you met {days} day{'' if days == 1 else 's'} ago "
-            f"and haven't been in touch since",
+        if days is None:
+            continue  # unparseable date: say nothing rather than "None days ago"
+        when = "yesterday" if days == 1 else (
+            "today" if days == 0 else f"{days} days ago")
+        # Below an open loop (85+): owing someone something concrete outranks
+        # having met them.
+        add(cid, "met_no_followup", 80,
+            f"{p['full_name']} — you met {when} and haven't been in touch since",
             [f"meeting on {r['met_on']}", "no contact since, nothing scheduled"])
 
     # 1) open loops — highest signal (you owe something concrete)
@@ -1141,8 +1230,28 @@ def cmd_context(conn, a):
               "honest; don't imply a history you don't have.)")
 
 
+# Letters that are not accented forms of an ASCII letter, so Unicode
+# decomposition leaves them whole and the strip below would delete them —
+# turning "Þórunn" into "orunn" and losing the letter a prefix index needs most.
+_LETTER_EQUIVALENTS = {
+    "þ": "th", "ð": "d", "ß": "ss", "ł": "l", "ø": "o", "æ": "ae",
+    "œ": "oe", "đ": "d", "ħ": "h", "ı": "i", "ŋ": "ng", "ſ": "s",
+}
+
+
 def _norm(s):
-    return re.sub(r"[^a-z ]", "", (s or "").lower()).strip()
+    """Names reduced to a comparable form. Accents are FOLDED, not dropped:
+    a sweep mints the ASCII spelling of a name its owner writes with accents
+    ("Angel Alvarez" in a From header, "Ángel Álvarez" on LinkedIn), and
+    deleting the accented letters instead of folding them made those two
+    strings share nothing to match or index on."""
+    lowered = (s or "").lower()
+    for letter, ascii_form in _LETTER_EQUIVALENTS.items():
+        if letter in lowered:
+            lowered = lowered.replace(letter, ascii_form)
+    folded = unicodedata.normalize("NFKD", lowered)
+    folded = "".join(c for c in folded if not unicodedata.combining(c))
+    return re.sub(r"[^a-z ]", "", folded).strip()
 
 
 def _norm_local(s):
@@ -1152,9 +1261,14 @@ def _norm_local(s):
 
 
 NAME_SIMILARITY = 0.82
-# How many alphabetical neighbours to check for a near-duplicate name inside
-# one company. Names that differ enough to sort further apart than this are
-# past what the similarity threshold would accept anyway.
+# Duplicate hunting compares people who share a company. Up to this many, every
+# pair is compared — exact, and cheap enough that essentially every real company
+# group lands here. Measured on one group, all pairs: 200 people 0.3s, 500 1.8s,
+# 600 ~2.6s, 1000 7s, 2000 29s. Above the threshold, fall back to comparing
+# alphabetical neighbours, which is bounded but CAN miss a pair that sorts far
+# apart ("Jon Smith" and "John Smith" with a dozen colleagues in between). That
+# trade is announced when it happens rather than degrading quietly.
+DUPE_EXACT_GROUP = 600
 DUPE_NEIGHBOURS = 12
 
 
@@ -1200,19 +1314,29 @@ def _dupe_pairs(conn):
     by_company = {}
     for p in people:
         by_company.setdefault(_norm(p["company"]), []).append(p)
+    capped = []
     for comp, group in by_company.items():
         if not comp or len(group) < 2:
             continue
         ordered = sorted(group, key=lambda p: _norm(p["full_name"]))
+        windowed = len(ordered) > DUPE_EXACT_GROUP
+        if windowed:
+            capped.append((ordered[0]["company"], len(ordered)))
         for i, a1 in enumerate(ordered):
             na = _norm(a1["full_name"])
-            for b1 in ordered[i + 1:i + 1 + DUPE_NEIGHBOURS]:
+            neighbours = (ordered[i + 1:i + 1 + DUPE_NEIGHBOURS] if windowed
+                          else ordered[i + 1:])
+            for b1 in neighbours:
                 nb = _norm(b1["full_name"])
                 if _too_different(na, nb):
                     continue
                 sim = SequenceMatcher(None, na, nb).ratio()
                 if sim >= NAME_SIMILARITY and a1["full_name"] != b1["full_name"]:
                     pairs.append((a1, b1, f"similar names at {a1['company']}", "possible"))
+    for company, size in capped:
+        print(f"  note: {company} has {size} people — checked each against their "
+              f"{DUPE_NEIGHBOURS} closest names by spelling, not every pair. A "
+              f"look-alike further down the list could be missed there.")
     return pairs
 
 
@@ -1556,7 +1680,9 @@ def main():
     unm.add_argument("--merge-id", type=int, required=True)
 
     a = ap.parse_args()
-    conn = connect(a.db)
+    # Creating a DB is only ever right at the default location; anywhere else,
+    # a missing file means the path is wrong, not that we should mint one.
+    conn = connect(a.db, create=(os.path.abspath(a.db) == os.path.abspath(DEFAULT_DB)))
     {"capture": cmd_capture, "ingest": cmd_ingest, "recall": cmd_recall,
      "loops": cmd_loops, "radar": cmd_radar, "context": cmd_context,
      "dupes": cmd_dupes, "merge": cmd_merge, "merges": cmd_merges,

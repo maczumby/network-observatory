@@ -43,6 +43,8 @@ import time
 import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
 REPO_ROOT = os.path.dirname(HERE)
 DASHBOARD_DIR = os.path.join(REPO_ROOT, "dashboard")
 AUTH_FILE = os.path.join(REPO_ROOT, "data", "serve_auth.json")
@@ -176,7 +178,10 @@ def read_version():
 
 
 def _trellis():
-    sys.path.insert(0, HERE)
+    """Import lazily (serve.py must start even from a checkout where trellis
+    can't import), but put HERE on the path once at module scope rather than
+    on every call — an insert per request grows sys.path without bound, and
+    every later uncached import pays to scan it."""
     import trellis
     return trellis
 
@@ -235,14 +240,23 @@ def api_person(db_path, body):
                 trellis.set_priority(conn, cid, "important")
         elif action == "unflag":
             # Clearing the map's flag steps back to normal, but never strips a
-            # 'critical' the user set deliberately elsewhere.
+            # 'critical' the user set deliberately elsewhere. When we decline,
+            # say so — a silent no-op leaves the button looking cleared while
+            # the DB disagrees, and the next rebuild puts the flag back.
             m = trellis.meta_for(conn, cid)
-            if ((m["priority"] if m else None) or "normal") == "important":
+            current = ((m["priority"] if m else None) or "normal")
+            if current == "important":
                 trellis.set_priority(conn, cid, "normal")
+            elif current == "critical":
+                conn.commit()
+                return 200, {"ok": True, "id": cid, "action": action,
+                             "changed": False, "priority": current,
+                             "reason": "They're marked critical, so the flag "
+                                       "stays. Change that on the People screen."}
         else:
             return 400, {"ok": False, "error": f"unknown action {action!r}"}
         conn.commit()
-        return 200, {"ok": True, "id": cid, "action": action}
+        return 200, {"ok": True, "id": cid, "action": action, "changed": True}
     finally:
         conn.close()
 
@@ -320,6 +334,7 @@ class _AuthHandler(http.server.SimpleHTTPRequestHandler):
     def _record_failure(self):
         ip = self.client_address[0]
         now = time.time()
+        self._evict(self.attempts, ATTEMPT_WINDOW, now)
         window, count = self.attempts.get(ip, (now, 0))
         if now - window > ATTEMPT_WINDOW:
             window, count = now, 0
@@ -347,9 +362,18 @@ class _AuthHandler(http.server.SimpleHTTPRequestHandler):
         host = self.headers.get("Host", "")
         return urllib.parse.urlparse(origin).netloc == host
 
+    @staticmethod
+    def _evict(bucket, window_seconds, now):
+        """Drop entries whose window has closed. Without this the dicts keep a
+        row per client IP for the life of the process."""
+        for ip in [k for k, (start, _) in bucket.items()
+                   if now - start > window_seconds]:
+            bucket.pop(ip, None)
+
     def _over_write_limit(self):
         ip = self.client_address[0]
         now = time.time()
+        self._evict(self.writes, WRITE_WINDOW, now)
         window, count = self.writes.get(ip, (now, 0))
         if now - window > WRITE_WINDOW:
             self.writes[ip] = (now, 1)

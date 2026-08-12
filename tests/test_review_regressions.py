@@ -2,6 +2,8 @@
 user had set, or made the tool lie about someone — so each gets a test."""
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import sys
@@ -85,14 +87,10 @@ class MergePreservesFollowUpTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def merge(self):
-        import contextlib
-        import io
         with contextlib.redirect_stdout(io.StringIO()):
             trellis.cmd_merge(self.conn, argparse.Namespace(src=self.dup, into=self.keep))
 
     def unmerge(self, merge_id=1):
-        import contextlib
-        import io
         with contextlib.redirect_stdout(io.StringIO()):
             trellis.cmd_unmerge(self.conn, argparse.Namespace(merge_id=merge_id))
 
@@ -231,6 +229,10 @@ class BackfillMatchesTheOldDisplayTest(unittest.TestCase):
                 (self.cid, "email", "2026-01-01", summary, "gmail", f"l{i}",
                  trellis.now()))
         self.conn.execute("UPDATE interactions SET direction=NULL")
+        # Stand the DB back up as an un-upgraded one. A v1.11.1 install is at
+        # user_version 0; the backfill is a one-time upgrade step, so that is
+        # the state where it has to fire (and the only one where it should).
+        self.conn.execute("PRAGMA user_version = 0")
         self.conn.commit()
 
         trellis.migrate(self.conn)
@@ -332,6 +334,228 @@ class IdentityMatchingScalesTest(unittest.TestCase):
                          f"the page build ran {called} — matching is back on the "
                          f"render path")
         self.assertEqual(payload["candidates"], {})
+
+
+class AccentedNamesAreMatchableTest(unittest.TestCase):
+    """_norm used to DELETE accented letters rather than fold them, so with
+    prefix blocking a swept "Angel Alvarez" could never meet the LinkedIn
+    "Ángel Álvarez" — 0.917 similar and invisible. A whole class of names."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.conn = trellis.connect(os.path.join(self.tmp.name, "data", "db.sqlite"))
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def add_linkedin(self, first, last):
+        self.conn.execute("""INSERT INTO connections (natural_key, first_name,
+            last_name, full_name, url, email, company, title, func, is_founder,
+            rank, source, first_seen_at, updated_at)
+            VALUES (?,?,?,?,?,'','Acme','','Other',0,2,'linkedin',?,?)""",
+            (f"k:{first}{last}", first, last, f"{first} {last}",
+             f"https://x.test/{first}{last}", trellis.now(), trellis.now()))
+
+    def add_stray(self, name, email):
+        cid = trellis.find_or_create_person(self.conn, name=name, email=email,
+                                            origin="gmail")
+        self.conn.execute("""INSERT INTO interactions (connection_id, kind,
+            occurred_on, summary, source, source_ref, created_at)
+            VALUES (?,?,?,?,?,?,?)""",
+            (cid, "email", "2026-06-01", "email sent", "gmail", f"m{cid}",
+             trellis.now()))
+        self.conn.commit()
+
+    def test_norm_folds_accents_instead_of_dropping_them(self):
+        self.assertEqual(trellis._norm("Ángel Álvarez"), "angel alvarez")
+        # þ and ð are letters in their own right, not accented vowels, so
+        # decomposition leaves them whole and a naive strip deletes them.
+        self.assertEqual(trellis._norm("Þórunn Guðmundsdóttir"),
+                         "thorunn gudmundsdottir")
+        self.assertEqual(trellis._norm("Łukasz Kowalczyk"), "lukasz kowalczyk")
+        self.assertEqual(trellis._norm("Søren Kjærgaard"), "soren kjaergaard")
+        self.assertEqual(trellis._norm("José"), "jose")
+
+    def test_an_accented_linkedin_name_matches_its_ascii_spelling(self):
+        self.add_linkedin("Ángel", "Álvarez")
+        self.add_stray("Angel Alvarez", "angel.alvarez@x.test")
+        names = [p["linkedin_name"] for p in trellis._match_candidates(self.conn)]
+        self.assertIn("Ángel Álvarez", names)
+
+    def test_a_first_letter_substitution_still_meets(self):
+        """Transliterations differ in the first letter, which a plain prefix
+        index would never bring together."""
+        self.add_linkedin("Kristina", "Karlsen")
+        self.add_stray("Cristina Carlsen", "cc@x.test")
+        names = [p["linkedin_name"] for p in trellis._match_candidates(self.conn)]
+        self.assertIn("Kristina Karlsen", names)
+
+    def test_a_nameless_stray_is_not_proposed_as_the_one_blank_name_person(self):
+        """The fallback matched every unnamed contact to whoever happened to
+        have a blank first name — and the People screen now offers a one-click
+        merge for it."""
+        self.conn.execute("""INSERT INTO connections (natural_key, first_name,
+            last_name, full_name, url, email, company, title, func, is_founder,
+            rank, source, first_seen_at, updated_at)
+            VALUES ('solo','','','Solo Mononym','https://x.test/s','','Acme','',
+                    'Other',0,2,'linkedin','x','x')""")
+        for i, email in enumerate(("a@x.test", "b@x.test")):
+            cid = trellis.find_or_create_person(self.conn, name=None, email=email,
+                                                origin="gmail")
+            self.conn.execute("UPDATE connections SET full_name='' WHERE id=?", (cid,))
+            self.conn.execute("""INSERT INTO interactions (connection_id, kind,
+                occurred_on, summary, source, source_ref, created_at)
+                VALUES (?,?,?,?,?,?,?)""",
+                (cid, "email", "2026-06-01", "email sent", "gmail", f"n{i}",
+                 trellis.now()))
+        self.conn.commit()
+        fallback = [p for p in trellis._match_candidates(self.conn)
+                    if "only LinkedIn contact" in p["why"]]
+        self.assertEqual(fallback, [])
+
+
+class DuplicateHuntingIsExactWhereItMattersTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.conn = trellis.connect(os.path.join(self.tmp.name, "data", "db.sqlite"))
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def seed(self, names, company="Acme"):
+        for i, n in enumerate(names):
+            parts = n.split()
+            self.conn.execute("""INSERT INTO connections (natural_key, first_name,
+                last_name, full_name, url, email, company, title, func,
+                is_founder, rank, source, first_seen_at, updated_at)
+                VALUES (?,?,?,?,'','',?,'','Other',0,2,'linkedin','x','x')""",
+                (f"k{i}", parts[0], parts[-1], n, company))
+        self.conn.commit()
+
+    def test_a_look_alike_far_down_the_list_is_still_found(self):
+        """The alphabetical window alone missed this 0.947 pair because 17
+        names sort between them."""
+        self.seed(["John Smith"] + [f"Johnson{c} Smith" for c in "abcdefghijklmnop"]
+                  + ["Jon Smith"])
+        pairs = trellis._dupe_pairs(self.conn)
+        self.assertTrue(
+            any({a["full_name"], b["full_name"]} == {"John Smith", "Jon Smith"}
+                for a, b, _, _ in pairs),
+            "exact comparison lost a real duplicate")
+
+    def test_an_oversized_group_says_it_took_the_shortcut(self):
+        """Above the threshold the window is used — which can miss pairs, so
+        it must not degrade silently."""
+        names = [f"Person{i:05d} Lastname" for i in range(trellis.DUPE_EXACT_GROUP + 5)]
+        self.seed(names, company="Megacorp")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            trellis._dupe_pairs(self.conn)
+        self.assertIn("Megacorp", out.getvalue())
+        self.assertIn("not every pair", out.getvalue())
+
+
+class MissingDatabaseTest(unittest.TestCase):
+    """A mistyped path used to mint an empty DB, answer "no contacts", and
+    swallow writes into a file nobody would ever read."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_connect_refuses_a_missing_file_when_asked_to(self):
+        missing = os.path.join(self.tmp.name, "nope", "linkedin.db")
+        with self.assertRaises(SystemExit) as ctx:
+            trellis.connect(missing, create=False)
+        self.assertIn(missing, str(ctx.exception))
+        self.assertFalse(os.path.exists(missing), "a phantom database was created")
+
+    def test_connect_still_creates_when_that_is_the_point(self):
+        fresh = os.path.join(self.tmp.name, "data", "linkedin.db")
+        conn = trellis.connect(fresh, create=True)
+        conn.close()
+        self.assertTrue(os.path.exists(fresh))
+
+
+class CaptureDatesAreValidatedTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.conn = trellis.connect(os.path.join(self.tmp.name, "data", "db.sqlite"))
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def capture(self, **kw):
+        args = dict(name=None, email=None, url=None, company=None, title=None,
+                    interaction=None, kind=None, date=None, note=None,
+                    note_category=None, loop=None, due=None, priority=None,
+                    prioritize=False, deprioritize=False, mode=None,
+                    follow_up=None, follow_up_reason=None, clear_follow_up=False,
+                    source=None, source_ref=None)
+        args.update(kw)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            trellis.cmd_capture(self.conn, argparse.Namespace(**args))
+        return out.getvalue()
+
+    def test_a_malformed_date_is_refused_at_entry(self):
+        with self.assertRaises(SystemExit):
+            self.capture(name="Typo", interaction="met", date="2026-08-1")
+        with self.assertRaises(SystemExit):
+            self.capture(name="Typo", interaction="met", date="last tuesday")
+
+    def test_a_good_date_is_stored(self):
+        self.capture(name="Fine", interaction="met", date="2026-08-05")
+        row = self.conn.execute("SELECT occurred_on FROM interactions").fetchone()
+        self.assertEqual(row["occurred_on"], "2026-08-05")
+
+
+class SchemaFastPathTest(unittest.TestCase):
+    """migrate() runs on every connection; skipping the work when the DB is
+    already current is what stops a schema change per HTTP write. But the skip
+    must still notice a DB that has actually drifted."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = os.path.join(self.tmp.name, "data", "db.sqlite")
+        self.conn = trellis.connect(self.db)
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def test_a_current_database_is_recognised_and_skipped(self):
+        self.assertTrue(trellis._schema_is_current(self.conn))
+
+    def test_a_dropped_view_is_noticed_and_repaired(self):
+        self.conn.execute("DROP VIEW people_v")
+        self.assertFalse(trellis._schema_is_current(self.conn))
+        trellis.migrate(self.conn)
+        self.assertTrue(trellis._schema_is_current(self.conn))
+
+    def test_a_redefined_view_is_noticed_and_replaced(self):
+        self.conn.execute("DROP VIEW people_v")
+        self.conn.execute("CREATE VIEW people_v AS SELECT * FROM connections WHERE 0")
+        self.assertFalse(trellis._schema_is_current(self.conn),
+                         "a hand-edited view passed as current")
+        trellis.migrate(self.conn)
+        self.conn.execute("""INSERT INTO connections (natural_key, full_name,
+            first_name, last_name, url, email, company, title, func, is_founder,
+            rank, source, first_seen_at, updated_at)
+            VALUES ('back','Visible Again','Visible','Again','','','Acme','',
+                    'Other',0,2,'linkedin','x','x')""")
+        self.conn.commit()
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) FROM people_v").fetchone()[0], 1)
+
+    def test_a_missing_column_is_noticed(self):
+        self.conn.execute("DROP TABLE calendar_plans")
+        self.assertFalse(trellis._schema_is_current(self.conn))
 
 
 if __name__ == "__main__":

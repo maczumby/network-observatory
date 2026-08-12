@@ -68,12 +68,14 @@ def person_key(url, name, company):
     return "n:" + (name or "").lower() + "|" + comp.lower()
 
 
-def status_of(p):
-    """The single ★/◷ derivation every screen shares."""
+def status_of(priority, follow_up_on, today=None):
+    """The one ★/◷ derivation. Returns the shape the payloads actually carry —
+    `flag` and `due` as 0/1 — so every exporter can use it directly instead of
+    keeping its own copy of the rule."""
+    today = today or trellis.TODAY.isoformat()
     return {
-        "star": (p.get("priority") or "normal") in ("important", "critical"),
-        "due": bool(p.get("follow_up_on")
-                    and p["follow_up_on"] <= trellis.TODAY.isoformat()),
+        "flag": 1 if (priority or "normal") in ("important", "critical") else 0,
+        "due": 1 if (follow_up_on and follow_up_on <= today) else 0,
     }
 
 
@@ -167,6 +169,7 @@ def load_people(conn):
                ON agg.connection_id = p.id
         ORDER BY p.connected_year DESC, p.id DESC"""):
         ds = trellis.days_since(r["last_on"])
+        status = status_of(r["priority"], r["follow_up_on"], today)
         people.append({
             "id": r["id"],
             "key": person_key(r["url"], r["full_name"], r["company"]),
@@ -180,10 +183,10 @@ def load_people(conn):
             "url": r["url"] or "", "email": r["email"] or "",
             "origin": r["source"] or "manual",
             "priority": r["priority"] or "normal",
-            "flag": 1 if (r["priority"] or "normal") in ("important", "critical") else 0,
+            "flag": status["flag"],
             "note": r["note"] or "",
             "follow_up_on": r["follow_up_on"],
-            "follow_up_due": bool(r["follow_up_on"] and r["follow_up_on"] <= today),
+            "follow_up_due": bool(status["due"]),
             "follow_up_reason": r["follow_up_reason"],
             "last_on": r["last_on"], "days": ds, "n": r["n"] or 0,
             "bucket": trellis.warmth_bucket(ds),

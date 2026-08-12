@@ -377,9 +377,15 @@ window.WORKBENCH = __WORKBENCH_DATA__;
               : '<div class="sub">Ask your agent:</div><code>' + esc(c.merge_command) + "</code>") +
             "</div>";
         }).join("");
+      } else if (data.candidates_unreadable) {
+        candHtml += '<div class="sub">The proposals file couldn\u2019t be read. ' +
+          'Ask your agent to run <code style="display:inline;padding:1px 5px;">reconcile</code> ' +
+          "again to rebuild it.</div>";
+      } else if (!data.candidates_generated) {
+        candHtml += '<div class="sub">No proposals have been generated yet. Your agent can run ' +
+          "<code style=\"display:inline;padding:1px 5px;\">reconcile</code> to look for matches.</div>";
       } else {
-        candHtml += '<div class="sub">No LinkedIn match proposed yet. Your agent can run ' +
-          "<code style=\"display:inline;padding:1px 5px;\">reconcile</code> after the next sweep.</div>";
+        candHtml += '<div class="sub">No LinkedIn match proposed for this person.</div>';
       }
       candHtml += "</div>";
     }

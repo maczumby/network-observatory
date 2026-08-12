@@ -137,7 +137,8 @@ def main():
     ap.add_argument("--json", action="store_true", help="print the queues too")
     a = ap.parse_args()
 
-    conn = trellis.connect(a.db)
+    conn = trellis.connect(
+        a.db, create=(os.path.abspath(a.db) == os.path.abspath(trellis.DEFAULT_DB)))
     data_dir = os.path.dirname(os.path.abspath(a.db))
     owner_ids = trellis.load_owner_identities(a.db)
 

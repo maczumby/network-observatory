@@ -58,6 +58,7 @@ def build_payload(db_path):
         FROM people_v p
         ORDER BY p.full_name COLLATE NOCASE""", (today,)):
         ds = trellis.days_since(r["last_on"])
+        status = common.status_of(r["priority"], r["follow_up_on"], today)
         people.append({
             "id": r["id"],
             "key": common.person_key(r["url"], r["full_name"], r["company"]),
@@ -66,8 +67,8 @@ def build_payload(db_path):
             "url": r["url"] or "", "email": r["email"] or "",
             "origin": r["source"] or "manual",
             "priority": r["priority"] or "normal",
-            "flag": 1 if (r["priority"] or "normal") in ("important", "critical") else 0,
-            "due": 1 if (r["follow_up_on"] and r["follow_up_on"] <= today) else 0,
+            "flag": status["flag"],
+            "due": status["due"],
             "follow_up_on": r["follow_up_on"],
             "follow_up_reason": r["follow_up_reason"],
             "last": r["last_on"], "last_kind": r["last_kind"],
@@ -84,31 +85,54 @@ def build_payload(db_path):
     # matching is a whole-graph pass, and rebuilding a page shouldn't pay for
     # it. It also means the screen offers exactly the proposals the agent is
     # looking at, instead of a second opinion computed a moment later.
+    # The file is data we didn't necessarily write — another agent's reconcile
+    # may use a different shape, and a half-written one is always possible. A
+    # page build must survive anything in it, so validate rather than assume:
+    # unreadable input means "no proposals", never a traceback.
     candidates = {}
     queue_path = os.path.join(os.path.dirname(os.path.abspath(db_path)),
                               "linkedin_identity_review_queue.json")
-    stale = False
+    unreadable = False
+    proposals = []
     if os.path.exists(queue_path):
         try:
             with open(queue_path, encoding="utf-8") as f:
-                proposals = json.load(f)
+                loaded = json.load(f)
         except (OSError, ValueError):
-            proposals = []
-            stale = True
-        for prop in proposals:
-            try:
-                candidates.setdefault(str(prop["stray_id"]), []).append({
-                    "linkedin_id": prop["linkedin_id"],
-                    "linkedin_name": prop["linkedin_name"],
-                    "linkedin_company": prop.get("linkedin_company", ""),
-                    "why": prop.get("why", ""),
-                    "merge_command": prop.get("merge_command", ""),
-                })
-            except KeyError:
-                stale = True
+            loaded = None
+        if isinstance(loaded, list):
+            proposals = [p for p in loaded if isinstance(p, dict)]
+            unreadable = len(proposals) != len(loaded)
+        else:
+            unreadable = True
+
+    live = {p["id"] for p in people}
+    dropped = 0
+    for prop in proposals:
+        try:
+            entry = {
+                "linkedin_id": int(prop["linkedin_id"]),
+                "linkedin_name": prop["linkedin_name"],
+                "linkedin_company": prop.get("linkedin_company", ""),
+                "why": prop.get("why", ""),
+                "merge_command": prop.get("merge_command", ""),
+            }
+            stray_id = int(prop["stray_id"])
+        except (KeyError, TypeError, ValueError):
+            unreadable = True
+            continue
+        # A proposal for someone who has since been merged away (or muted) can
+        # only fail when clicked. Build the entry first so a bad one can't leave
+        # an empty group behind.
+        if stray_id not in live or entry["linkedin_id"] not in live:
+            dropped += 1
+            continue
+        candidates.setdefault(str(stray_id), []).append(entry)
 
     return {"people": people, "candidates": candidates, "today": today,
-            "candidates_generated": bool(candidates) and not stale}
+            "candidates_generated": bool(proposals) and not unreadable,
+            "candidates_unreadable": unreadable,
+            "candidates_dropped": dropped}
 
 
 def render(payload, out_path):
