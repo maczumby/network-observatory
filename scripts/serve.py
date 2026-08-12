@@ -39,6 +39,7 @@ import json
 import os
 import secrets
 import sys
+import threading
 import time
 import urllib.parse
 
@@ -362,13 +363,18 @@ class _AuthHandler(http.server.SimpleHTTPRequestHandler):
         host = self.headers.get("Host", "")
         return urllib.parse.urlparse(origin).netloc == host
 
-    @staticmethod
-    def _evict(bucket, window_seconds, now):
+    _bucket_lock = threading.Lock()
+
+    @classmethod
+    def _evict(cls, bucket, window_seconds, now):
         """Drop entries whose window has closed. Without this the dicts keep a
-        row per client IP for the life of the process."""
-        for ip in [k for k, (start, _) in bucket.items()
-                   if now - start > window_seconds]:
-            bucket.pop(ip, None)
+        row per client IP for the life of the process. Locked because these are
+        class-level dicts and every request runs in its own thread — iterating
+        one while another thread inserts raises 'dictionary changed size'."""
+        with cls._bucket_lock:
+            for ip in [k for k, (start, _) in list(bucket.items())
+                       if now - start > window_seconds]:
+                bucket.pop(ip, None)
 
     def _over_write_limit(self):
         ip = self.client_address[0]

@@ -106,7 +106,17 @@ def build_payload(db_path):
         else:
             unreadable = True
 
-    live = {p["id"] for p in people}
+    # Liveness means "still a row you could merge", not "currently on screen":
+    # a deprioritized person, or a swept row that has no interactions yet, is
+    # hidden from people_v but is a perfectly valid merge target. Filtering on
+    # the visible set silently threw those proposals away.
+    conn = trellis.connect(db_path)
+    try:
+        live = {r["id"] for r in conn.execute(
+            "SELECT id FROM connections "
+            "WHERE lower(COALESCE(source,'')) NOT LIKE 'merged_into_%'")}
+    finally:
+        conn.close()
     dropped = 0
     for prop in proposals:
         try:
@@ -130,7 +140,7 @@ def build_payload(db_path):
         candidates.setdefault(str(stray_id), []).append(entry)
 
     return {"people": people, "candidates": candidates, "today": today,
-            "candidates_generated": bool(proposals) and not unreadable,
+            "candidates_generated": os.path.exists(queue_path) and not unreadable,
             "candidates_unreadable": unreadable,
             "candidates_dropped": dropped}
 

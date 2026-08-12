@@ -90,6 +90,33 @@ class MeetingNudgeTest(unittest.TestCase):
         self.conn.commit()
         self.assertNotIn("SameDay", self.radar())
 
+    def test_the_agenda_you_sent_that_morning_is_not_a_follow_up(self):
+        """Same-day rows are equal on date, so "did we speak after?" needs the
+        row order too — otherwise emailing the agenda beforehand silences the
+        nudge for a meeting you never followed up on."""
+        cid = self.met("Agenda", 6)
+        self.conn.execute("""INSERT INTO interactions (connection_id, kind,
+            occurred_on, summary, source, source_ref, created_at)
+            VALUES (?,?,?,?,?,?,?)""",
+            (cid, "email", self.ago(6), "email sent", "gmail", "pre",
+             trellis.now()))
+        # make the agenda older than the meeting row
+        self.conn.execute("""UPDATE interactions SET id = -1
+            WHERE source_ref = 'pre'""")
+        self.conn.commit()
+        self.assertIn("Agenda", self.radar())
+
+    def test_a_reply_with_no_kind_still_counts_as_contact(self):
+        """NULL <> 'meeting' is NULL in SQL, so an interaction ingested without
+        a kind used to never count as having been in touch."""
+        cid = self.met("NullKind", 6)
+        self.conn.execute("""INSERT INTO interactions (connection_id, kind,
+            occurred_on, summary, source, source_ref, created_at)
+            VALUES (?,NULL,?,?,?,?,?)""",
+            (cid, self.ago(2), "replied", "gmail", "nk", trellis.now()))
+        self.conn.commit()
+        self.assertNotIn("NullKind", self.radar())
+
     def test_silent_when_you_are_seeing_them_again(self):
         cid = self.met("Upcoming", 6)
         self.conn.execute("""INSERT INTO calendar_plans (connection_id,
@@ -138,17 +165,38 @@ class MeetingNudgeTest(unittest.TestCase):
         self.assertNotIn("None days", text)
 
     # -- and it doesn't outrank a concrete debt ---------------------------
-    def test_an_open_loop_you_owe_outranks_a_recent_meeting(self):
+    def test_an_overdue_debt_outranks_a_recent_meeting(self):
+        """Ordering, deliberately: a debt you are LATE on (100) beats a fresh
+        meeting (90), which in turn beats an open loop with no deadline (85) —
+        a follow-up decays in about three weeks, an undated loop doesn't, and
+        the default five-item list shouldn't bury the meeting behind a pile of
+        loans with no due date."""
         self.met("JustMet", 3)
         owed = trellis.find_or_create_person(
-            self.conn, name="Owed Person", email="o@x.test", origin="manual")
+            self.conn, name="Overdue Person", email="o@x.test", origin="manual")
         self.conn.execute("""INSERT INTO open_loops (connection_id, description,
-            status, source, created_at) VALUES (?,?, 'open', 'manual', ?)""",
-            (owed, "send the contract", trellis.now()))
+            status, due_on, source, created_at)
+            VALUES (?,?, 'open', ?, 'manual', ?)""",
+            (owed, "send the contract", self.ago(5), trellis.now()))
         self.conn.commit()
         text = self.radar()
-        self.assertLess(text.index("Owed Person"), text.index("JustMet"),
-                        "a meeting outranked something you actually owe")
+        self.assertLess(text.index("Overdue Person"), text.index("JustMet"),
+                        "a meeting outranked a debt you are late on")
+
+    def test_a_fresh_meeting_is_not_buried_under_undated_loops(self):
+        """Five open loops with no deadline used to push the nudge off the
+        default five-item radar entirely."""
+        self.met("JustMet", 3)
+        for i in range(5):
+            cid = trellis.find_or_create_person(
+                self.conn, name=f"Loop Person {i}", email=f"l{i}@x.test",
+                origin="manual")
+            self.conn.execute("""INSERT INTO open_loops (connection_id,
+                description, status, source, created_at)
+                VALUES (?,?, 'open', 'manual', ?)""",
+                (cid, f"owe them thing {i}", trellis.now()))
+        self.conn.commit()
+        self.assertIn("JustMet", self.radar())
 
     def test_a_due_follow_up_still_outranks_everything(self):
         self.met("JustMet", 3)

@@ -211,6 +211,47 @@ class ExportedPagesTest(unittest.TestCase):
         os.remove(os.path.join(os.path.dirname(self.db_path),
                                "linkedin_identity_review_queue.json"))
 
+    def test_a_proposal_survives_when_its_target_is_hidden(self):
+        """A deprioritized person is hidden from the screens but is still a
+        valid merge target — filtering proposals on the visible set threw
+        real duplicates away."""
+        import reconcile
+        conn = trellis.connect(self.db_path)
+        try:
+            reconcile.write_queue(os.path.dirname(self.db_path),
+                                  "linkedin_identity_review_queue.json",
+                                  reconcile.identity_queue(conn))
+            trellis.set_priority(conn, self.brock, "muted")
+            conn.commit()
+        finally:
+            conn.close()
+        path = os.path.join(os.path.dirname(self.db_path),
+                            "linkedin_identity_review_queue.json")
+        try:
+            payload = workbench_export.build_payload(self.db_path)
+            self.assertIn(str(self.stray), payload["candidates"],
+                          "the proposal vanished because its target was muted")
+            self.assertEqual(payload["candidates_dropped"], 0)
+        finally:
+            os.remove(path)
+            conn = trellis.connect(self.db_path)
+            trellis.set_priority(conn, self.brock, "normal")
+            conn.commit()
+            conn.close()
+
+    def test_an_empty_queue_means_reconcile_ran_and_found_nothing(self):
+        path = os.path.join(os.path.dirname(self.db_path),
+                            "linkedin_identity_review_queue.json")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("[]")
+        try:
+            payload = workbench_export.build_payload(self.db_path)
+            self.assertTrue(payload["candidates_generated"],
+                            "an empty result read as 'never generated'")
+            self.assertEqual(payload["candidates"], {})
+        finally:
+            os.remove(path)
+
     def test_a_corrupt_queue_file_does_not_break_the_build(self):
         path = os.path.join(os.path.dirname(self.db_path),
                             "linkedin_identity_review_queue.json")

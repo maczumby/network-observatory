@@ -200,6 +200,9 @@ _REQUIRED_COLUMNS = {
     "interactions": ("direction",),
     "person_meta": ("follow_up_on", "follow_up_reason"),
     "calendar_plans": ("connection_id", "planned_on", "source", "source_ref"),
+    # Must list every column migrate() adds: the fast path checks these, so a
+    # column missing from here is a column that silently never gets added.
+    "identity_merge_meta": ("follow_up_on", "follow_up_reason"),
 }
 
 
@@ -286,6 +289,11 @@ def migrate(conn):
     conn.execute(PEOPLE_V_SQL)
     for table, cols in _REQUIRED_COLUMNS.items():
         have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if not have:
+            # The table doesn't exist at all — the DDL creates it with the
+            # current shape. Only an EXISTING table of the wrong shape means
+            # this DB carries someone else's schema.
+            continue
         missing = [c for c in cols if c not in have]
         if missing:
             raise SystemExit(
@@ -308,7 +316,9 @@ def connect(db_path, create=True):
             f"No database at {db_path}\n"
             "Check the path. If this is a new setup, import a LinkedIn export "
             "first:  python3 scripts/linkedin_import.py")
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    parent = os.path.dirname(db_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.executescript(CONNECTIONS_DDL)
@@ -1097,7 +1107,8 @@ def cmd_radar(conn, a):
     #     nothing already planned. Silent after the grace period, so it nudges
     #     once while it's still natural to write, not forever.
     for r in conn.execute("""
-        SELECT i.connection_id AS cid, MAX(i.occurred_on) AS met_on
+        SELECT i.connection_id AS cid, MAX(i.occurred_on) AS met_on,
+               MAX(i.id) AS met_id
         FROM interactions i
         WHERE i.kind = 'meeting' AND i.occurred_on <= ? AND i.occurred_on >= ?
         GROUP BY i.connection_id""",
@@ -1113,11 +1124,15 @@ def cmd_radar(conn, a):
             continue  # already parked, or already has a date they chose
         # occurred_on is a DATE, so the email you sent that same afternoon is
         # equal to the meeting date, not greater — and meet-then-write-that-day
-        # is the most common pattern there is. Anything that isn't the meeting
-        # itself, on or after that date, counts as having been in touch.
+        # is the most common pattern there is. But the agenda you sent that
+        # MORNING is equal too, and that isn't a follow-up, so a same-day row
+        # only counts when it was recorded after the meeting (higher id).
+        # COALESCE because kind can be NULL, and NULL <> 'meeting' is NULL.
         since = conn.execute("""SELECT COUNT(*) FROM interactions
-            WHERE connection_id=? AND occurred_on >= ? AND kind <> 'meeting'""",
-            (cid, r["met_on"])).fetchone()[0]
+            WHERE connection_id=?
+              AND COALESCE(kind,'') <> 'meeting'
+              AND (occurred_on > ? OR (occurred_on = ? AND id > ?))""",
+            (cid, r["met_on"], r["met_on"], r["met_id"])).fetchone()[0]
         if since:
             continue  # you've been in touch since; nothing to nudge about
         if conn.execute("""SELECT 1 FROM open_loops WHERE connection_id=?
@@ -1131,9 +1146,10 @@ def cmd_radar(conn, a):
             continue  # unparseable date: say nothing rather than "None days ago"
         when = "yesterday" if days == 1 else (
             "today" if days == 0 else f"{days} days ago")
-        # Below an open loop (85+): owing someone something concrete outranks
-        # having met them.
-        add(cid, "met_no_followup", 80,
+        # Between an overdue loop (100) and a merely-open one (85): something
+        # you owe and are late on comes first, but a handful of open loops
+        # mustn't push a fresh meeting off the default five-item list.
+        add(cid, "met_no_followup", 90,
             f"{p['full_name']} — you met {when} and haven't been in touch since",
             [f"meeting on {r['met_on']}", "no contact since, nothing scheduled"])
 
