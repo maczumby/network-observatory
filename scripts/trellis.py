@@ -154,6 +154,19 @@ CREATE INDEX IF NOT EXISTS idx_plan_conn ON calendar_plans(connection_id);
 # display), each row carrying WHY the product would hide them. Stating the
 # rules once, here, is the point: people_v below is a filter over this view,
 # and the "show me what's hidden" paths read this one — so the two can't drift.
+# Created by migrate() as well as by the main DDL, so that migrating an older
+# database reaches the schema assertion with these tables present.
+IDENTITY_JOURNAL_DDL = """
+CREATE TABLE IF NOT EXISTS identity_merge_meta (
+    merge_id INTEGER NOT NULL REFERENCES identity_merges(id),
+    connection_id INTEGER NOT NULL REFERENCES connections(id),
+    existed INTEGER NOT NULL, priority TEXT, mode TEXT, updated_at TEXT,
+    follow_up_on TEXT, follow_up_reason TEXT,
+    PRIMARY KEY (merge_id, connection_id)
+);
+"""
+
+
 # Bumped whenever migrate() gains work to do. A DB already stamped with this
 # skips the whole pass, so ordinary reads and writes stop paying for it.
 SCHEMA_VERSION = 3
@@ -261,6 +274,7 @@ def migrate(conn):
         return
     try:
         conn.executescript(CALENDAR_PLANS_DDL)
+        conn.executescript(IDENTITY_JOURNAL_DDL)
     except sqlite3.OperationalError:
         # A pre-existing table of a different shape makes the indexes fail.
         # Swallow it here so the column assertion below can say what's wrong
@@ -289,12 +303,12 @@ def migrate(conn):
     conn.execute(PEOPLE_V_SQL)
     for table, cols in _REQUIRED_COLUMNS.items():
         have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
-        if not have:
-            # The table doesn't exist at all — the DDL creates it with the
-            # current shape. Only an EXISTING table of the wrong shape means
-            # this DB carries someone else's schema.
-            continue
-        missing = [c for c in cols if c not in have]
+        # An absent table is a failure too: migrate() creates every table it
+        # needs, so if one still isn't here the DDL silently didn't take (a
+        # lock, an index collision with a foreign schema) and stamping the
+        # version would mark an unusable DB as migrated.
+        missing = [c for c in cols if c not in have] or (
+            ["the table itself"] if not have else [])
         if missing:
             raise SystemExit(
                 f"schema mismatch: table '{table}' is missing column(s) "
@@ -1107,8 +1121,7 @@ def cmd_radar(conn, a):
     #     nothing already planned. Silent after the grace period, so it nudges
     #     once while it's still natural to write, not forever.
     for r in conn.execute("""
-        SELECT i.connection_id AS cid, MAX(i.occurred_on) AS met_on,
-               MAX(i.id) AS met_id
+        SELECT i.connection_id AS cid, MAX(i.occurred_on) AS met_on
         FROM interactions i
         WHERE i.kind = 'meeting' AND i.occurred_on <= ? AND i.occurred_on >= ?
         GROUP BY i.connection_id""",
@@ -1122,17 +1135,20 @@ def cmd_radar(conn, a):
         m = meta_for(conn, cid)
         if m and (m["priority"] == "muted" or m["follow_up_on"]):
             continue  # already parked, or already has a date they chose
-        # occurred_on is a DATE, so the email you sent that same afternoon is
-        # equal to the meeting date, not greater — and meet-then-write-that-day
-        # is the most common pattern there is. But the agenda you sent that
-        # MORNING is equal too, and that isn't a follow-up, so a same-day row
-        # only counts when it was recorded after the meeting (higher id).
+        # occurred_on is a DATE with no time, so a message on the day of the
+        # meeting could be the follow-up you sent that afternoon or the agenda
+        # you sent that morning — and nothing stored can tell them apart. Row
+        # id is insertion order across independent ingest runs, not clock
+        # order, so it can't either. Given the ambiguity, count any same-day
+        # message as contact: staying quiet about someone you did write to is
+        # a smaller failure than nagging them, which is the whole reason this
+        # module would rather say nothing than say something wrong. The cost
+        # is that an agenda-only email hides a genuine missed follow-up.
         # COALESCE because kind can be NULL, and NULL <> 'meeting' is NULL.
         since = conn.execute("""SELECT COUNT(*) FROM interactions
             WHERE connection_id=?
               AND COALESCE(kind,'') <> 'meeting'
-              AND (occurred_on > ? OR (occurred_on = ? AND id > ?))""",
-            (cid, r["met_on"], r["met_on"], r["met_id"])).fetchone()[0]
+              AND occurred_on >= ?""", (cid, r["met_on"])).fetchone()[0]
         if since:
             continue  # you've been in touch since; nothing to nudge about
         if conn.execute("""SELECT 1 FROM open_loops WHERE connection_id=?

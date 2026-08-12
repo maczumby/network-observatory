@@ -90,21 +90,31 @@ class MeetingNudgeTest(unittest.TestCase):
         self.conn.commit()
         self.assertNotIn("SameDay", self.radar())
 
-    def test_the_agenda_you_sent_that_morning_is_not_a_follow_up(self):
-        """Same-day rows are equal on date, so "did we speak after?" needs the
-        row order too — otherwise emailing the agenda beforehand silences the
-        nudge for a meeting you never followed up on."""
-        cid = self.met("Agenda", 6)
-        self.conn.execute("""INSERT INTO interactions (connection_id, kind,
-            occurred_on, summary, source, source_ref, created_at)
-            VALUES (?,?,?,?,?,?,?)""",
-            (cid, "email", self.ago(6), "email sent", "gmail", "pre",
-             trellis.now()))
-        # make the agenda older than the meeting row
-        self.conn.execute("""UPDATE interactions SET id = -1
-            WHERE source_ref = 'pre'""")
-        self.conn.commit()
-        self.assertIn("Agenda", self.radar())
+    def test_a_same_day_message_counts_however_it_was_ingested(self):
+        """Known limitation, chosen deliberately. occurred_on is a date with no
+        time, and row id is ingest order across independent sweeps, so nothing
+        stored can say whether a same-day message came before or after the
+        meeting. Rather than guess, any same-day message counts as contact:
+        the cost is that an agenda sent that morning hides a genuinely missed
+        follow-up; the benefit is never nagging someone you did write to.
+
+        This also has to hold regardless of which sweep ran first — an earlier
+        attempt used row id as a stand-in for time and broke whenever the Gmail
+        sweep ran before the calendar one, which is the ordinary order."""
+        for label, force_lower_id in (("EmailFirst", True), ("MeetingFirst", False)):
+            cid = self.met(label, 6)
+            self.conn.execute("""INSERT INTO interactions (connection_id, kind,
+                occurred_on, summary, source, source_ref, created_at)
+                VALUES (?,?,?,?,?,?,?)""",
+                (cid, "email", self.ago(6), "email sent", "gmail",
+                 f"same-day-{label}", trellis.now()))
+            if force_lower_id:
+                self.conn.execute(
+                    "UPDATE interactions SET id = -1 WHERE source_ref = ?",
+                    (f"same-day-{label}",))
+            self.conn.commit()
+            with self.subTest(order=label):
+                self.assertNotIn(label, self.radar())
 
     def test_a_reply_with_no_kind_still_counts_as_contact(self):
         """NULL <> 'meeting' is NULL in SQL, so an interaction ingested without

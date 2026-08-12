@@ -106,17 +106,13 @@ def build_payload(db_path):
         else:
             unreadable = True
 
-    # Liveness means "still a row you could merge", not "currently on screen":
-    # a deprioritized person, or a swept row that has no interactions yet, is
-    # hidden from people_v but is a perfectly valid merge target. Filtering on
-    # the visible set silently threw those proposals away.
-    conn = trellis.connect(db_path)
-    try:
-        live = {r["id"] for r in conn.execute(
-            "SELECT id FROM connections "
-            "WHERE lower(COALESCE(source,'')) NOT LIKE 'merged_into_%'")}
-    finally:
-        conn.close()
+    # Only offer a merge between two people the user can actually see. Widening
+    # this to every non-tombstoned row looked like a fix — it rescued a
+    # proposal whose target had been deprioritized — but merging INTO a hidden
+    # person moves the visible one's history onto a row nobody can see, so both
+    # disappear from every screen. A proposal you can't act on is a smaller
+    # problem than a button that makes two people vanish.
+    live = {p["id"] for p in people}
     dropped = 0
     for prop in proposals:
         try:

@@ -457,6 +457,52 @@ class DuplicateHuntingIsExactWhereItMattersTest(unittest.TestCase):
         self.assertIn("not every pair", out.getvalue())
 
 
+class TripwireStaysLoudTest(unittest.TestCase):
+    """The fast path made migrate() skippable; the skip must never let a DB
+    that failed to migrate get stamped as migrated."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = os.path.join(self.tmp.name, "data", "db.sqlite")
+        self.conn = trellis.connect(self.db)
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def test_a_divergent_table_still_stops_everything(self):
+        self.conn.execute("PRAGMA user_version = 0")
+        self.conn.execute("DROP TABLE calendar_plans")
+        self.conn.execute("CREATE TABLE calendar_plans (id INTEGER PRIMARY KEY, whenever TEXT)")
+        self.conn.commit()
+        with self.assertRaises(SystemExit) as ctx:
+            trellis.migrate(self.conn)
+        self.assertIn("schema mismatch", str(ctx.exception))
+
+    def test_a_failed_migration_does_not_get_stamped(self):
+        """Otherwise the next run takes the fast path over an unusable DB and
+        dies later with a raw sqlite error instead of the plain-language one."""
+        self.conn.execute("PRAGMA user_version = 0")
+        self.conn.execute("DROP TABLE calendar_plans")
+        self.conn.execute("CREATE TABLE calendar_plans (id INTEGER PRIMARY KEY, whenever TEXT)")
+        self.conn.commit()
+        with self.assertRaises(SystemExit):
+            trellis.migrate(self.conn)
+        self.assertEqual(
+            self.conn.execute("PRAGMA user_version").fetchone()[0], 0,
+            "a database that failed to migrate was stamped as migrated")
+
+    def test_the_journal_table_is_created_by_migrate_itself(self):
+        """A legacy DB reaching migrate() without it must not trip the wire."""
+        self.conn.execute("PRAGMA user_version = 0")
+        self.conn.execute("DROP TABLE identity_merge_meta")
+        self.conn.commit()
+        trellis.migrate(self.conn)
+        cols = {r["name"] for r in
+                self.conn.execute("PRAGMA table_info(identity_merge_meta)")}
+        self.assertIn("follow_up_on", cols)
+
+
 class MissingDatabaseTest(unittest.TestCase):
     """A mistyped path used to mint an empty DB, answer "no contacts", and
     swallow writes into a file nobody would ever read."""

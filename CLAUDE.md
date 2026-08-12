@@ -155,9 +155,13 @@ every answer citing its source. Run it when the user asks relationship questions
   Trellis just writes.
 - "who did I leave hanging / who should I reach out to" → `trellis.py loops` / `radar`.
   Read the reason lines back; if radar is quiet, say so — don't invent reasons.
-  Radar orders what it finds: a follow-up date the user set comes first, then a
-  loop they owe, then **someone they met recently and haven't spoken to since**,
-  then cadence. That third one is what calendar data buys — see below.
+  Radar orders what it finds: a follow-up date the user set (110), then a loop
+  they owe and are **late** on (100), then **someone they met recently and
+  haven't spoken to since** (90), then a loop with no deadline (85), then
+  cadence. A meeting outranks an undated loop on purpose — the follow-up decays
+  in about three weeks while an undated loop doesn't, and a handful of open
+  loops shouldn't push a fresh meeting off the default five-item list. That
+  third one is what calendar data buys — see below.
 - "help me write to X" → `trellis.py context --name X`, then draft **only** from those
   facts. Never invent shared history. **Never send** — draft for the user to review.
 

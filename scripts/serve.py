@@ -335,11 +335,12 @@ class _AuthHandler(http.server.SimpleHTTPRequestHandler):
     def _record_failure(self):
         ip = self.client_address[0]
         now = time.time()
-        self._evict(self.attempts, ATTEMPT_WINDOW, now)
-        window, count = self.attempts.get(ip, (now, 0))
-        if now - window > ATTEMPT_WINDOW:
-            window, count = now, 0
-        self.attempts[ip] = (window, count + 1)
+        with self._bucket_lock:
+            self._evict_locked(self.attempts, ATTEMPT_WINDOW, now)
+            window, count = self.attempts.get(ip, (now, 0))
+            if now - window > ATTEMPT_WINDOW:
+                window, count = now, 0
+            self.attempts[ip] = (window, count + 1)
 
     def _authorized(self):
         if not self.auth:
@@ -365,27 +366,29 @@ class _AuthHandler(http.server.SimpleHTTPRequestHandler):
 
     _bucket_lock = threading.Lock()
 
-    @classmethod
-    def _evict(cls, bucket, window_seconds, now):
-        """Drop entries whose window has closed. Without this the dicts keep a
-        row per client IP for the life of the process. Locked because these are
-        class-level dicts and every request runs in its own thread — iterating
-        one while another thread inserts raises 'dictionary changed size'."""
-        with cls._bucket_lock:
-            for ip in [k for k, (start, _) in list(bucket.items())
-                       if now - start > window_seconds]:
-                bucket.pop(ip, None)
+    @staticmethod
+    def _evict_locked(bucket, window_seconds, now):
+        """Drop entries whose window has closed — without this the dicts keep a
+        row per client IP for the life of the process. Callers hold
+        _bucket_lock: these are class-level dicts shared by every request
+        thread, and counting a limit is a read-modify-write, so the whole
+        check has to be atomic or two simultaneous requests each overwrite the
+        other's increment and the limit is quietly overshot."""
+        for ip in [k for k, (start, _) in list(bucket.items())
+                   if now - start > window_seconds]:
+            bucket.pop(ip, None)
 
     def _over_write_limit(self):
         ip = self.client_address[0]
         now = time.time()
-        self._evict(self.writes, WRITE_WINDOW, now)
-        window, count = self.writes.get(ip, (now, 0))
-        if now - window > WRITE_WINDOW:
-            self.writes[ip] = (now, 1)
-            return False
-        self.writes[ip] = (window, count + 1)
-        return count + 1 > WRITE_LIMIT
+        with self._bucket_lock:
+            self._evict_locked(self.writes, WRITE_WINDOW, now)
+            window, count = self.writes.get(ip, (now, 0))
+            if now - window > WRITE_WINDOW:
+                self.writes[ip] = (now, 1)
+                return False
+            self.writes[ip] = (window, count + 1)
+            return count + 1 > WRITE_LIMIT
 
     def _handle_api_post(self, path):
         if not self.rw:

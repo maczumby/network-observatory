@@ -211,10 +211,10 @@ class ExportedPagesTest(unittest.TestCase):
         os.remove(os.path.join(os.path.dirname(self.db_path),
                                "linkedin_identity_review_queue.json"))
 
-    def test_a_proposal_survives_when_its_target_is_hidden(self):
-        """A deprioritized person is hidden from the screens but is still a
-        valid merge target — filtering proposals on the visible set threw
-        real duplicates away."""
+    def test_a_merge_is_only_offered_between_two_visible_people(self):
+        """Merging INTO someone the screens hide moves the visible person's
+        history onto a row nobody can see — both vanish. A proposal you can't
+        act on is the lesser problem, so hidden targets are dropped."""
         import reconcile
         conn = trellis.connect(self.db_path)
         try:
@@ -229,9 +229,9 @@ class ExportedPagesTest(unittest.TestCase):
                             "linkedin_identity_review_queue.json")
         try:
             payload = workbench_export.build_payload(self.db_path)
-            self.assertIn(str(self.stray), payload["candidates"],
-                          "the proposal vanished because its target was muted")
-            self.assertEqual(payload["candidates_dropped"], 0)
+            self.assertNotIn(str(self.stray), payload["candidates"],
+                             "offered a merge into a person the screens hide")
+            self.assertEqual(payload["candidates_dropped"], 1)
         finally:
             os.remove(path)
             conn = trellis.connect(self.db_path)
